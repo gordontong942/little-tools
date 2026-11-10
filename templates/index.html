@@ -37,111 +37,551 @@
             </div>
             <span class="font-semibold text-sm text-white">Geocaching Python Backend Extractor</span>
         </div>
-        <div class="text-xs font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2.5 py-1 rounded-full">
-            <span class="inline-block h-2 w-2 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span> Python Session Proxy Active
+        <div class="flex items-center space-x-3">
+            <div id="statusBadge" class="text-xs font-mono text-slate-400 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-full flex items-center">
+                <span id="statusDot" class="inline-block h-2 w-2 rounded-full bg-slate-500 mr-1.5"></span>
+                <span id="statusText">Ready</span>
+            </div>
         </div>
     </header>
 
-    <!-- Main Content -->
-    <main class="flex-1 max-w-[1600px] w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <!-- Main Content Grid -->
+    <main class="flex-1 max-w-[1850px] w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         <!-- Sidebar Controls -->
-        <aside class="lg:col-span-4 space-y-4">
+        <aside class="lg:col-span-3 space-y-4">
             <div class="bg-slate-900/80 rounded-xl p-4 border border-slate-800 space-y-4">
                 <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">
                     <i class="fa-solid fa-sliders text-indigo-400 mr-1.5"></i> Configuration
                 </h2>
 
                 <div class="space-y-1.5">
-                    <label class="text-xs font-medium text-slate-300">Cookie String</label>
-                    <textarea id="cookieInput" rows="4" placeholder="gspkauth=...; gspk=..."
-                        class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:border-indigo-500 focus:outline-none resize-none"></textarea>
+                    <label class="text-xs font-medium text-slate-300">Cookie Header String <span class="text-indigo-400">*</span></label>
+                    <textarea id="cookieInput" rows="4" placeholder="Paste full 'gspkauth=...; gspk=...' copied from DevTools..."
+                        class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:border-indigo-500 focus:outline-none resize-none placeholder:text-slate-600"></textarea>
                 </div>
 
                 <div class="space-y-1.5">
-                    <label class="text-xs font-medium text-slate-300">Bounding Box (MaxLat, MinLng, MinLat, MaxLng)</label>
-                    <input type="text" id="bboxInput" value="22.55,113.85,22.15,114.40"
+                    <label class="text-xs font-medium text-slate-300">Bounding Box Coordinates</label>
+                    <input type="text" id="bboxInput" value="22.55,113.85,22.15,114.40" placeholder="MaxLat, MinLng, MinLat, MaxLng"
                         class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:outline-none">
+                    <p class="text-[10px] font-mono text-slate-500">Format: <code>MaxLat,MinLng,MinLat,MaxLng</code></p>
                 </div>
 
-                <button onclick="startExtraction()" id="submitBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 px-4 rounded-lg text-xs transition flex items-center justify-center gap-2">
-                    <i class="fa-solid fa-bolt"></i> Run Python Proxy Task
-                </button>
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-slate-300">Fetch First N Caches</label>
+                    <input type="number" id="cacheLimitInput" value="20" min="1" max="100" placeholder="20"
+                        class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:outline-none focus:border-indigo-500">
+                </div>
+
+                <div class="pt-2 flex gap-2">
+                    <button onclick="startExtraction()" id="submitBtn" class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 px-4 rounded-lg text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20">
+                        <i class="fa-solid fa-bolt"></i> Run Python Proxy Task
+                    </button>
+                    <button onclick="clearData()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 px-3 rounded-lg text-xs transition">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stats Summary Cards -->
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <span class="text-[10px] font-mono text-slate-500 uppercase tracking-wider block mb-1">Caches Found</span>
+                    <span id="statCaches" class="text-2xl font-bold font-mono text-indigo-400">0</span>
+                </div>
+                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                    <span class="text-[10px] font-mono text-slate-500 uppercase tracking-wider block mb-1">Found / Solved / Owned</span>
+                    <span id="statSolved" class="text-2xl font-bold font-mono text-emerald-400">0</span>
+                </div>
             </div>
         </aside>
 
-        <!-- Viewport Workspace -->
-        <section class="lg:col-span-8 flex flex-col space-y-4">
-            <div class="bg-slate-900/80 rounded-xl border border-slate-800 p-4 font-mono text-xs h-[500px] flex flex-col">
-                <div class="border-b border-slate-800 pb-2 mb-3 text-slate-500 flex justify-between items-center">
-                    <span>Execution Terminal</span>
-                    <button onclick="document.getElementById('terminal').innerHTML=''" class="text-xs hover:text-slate-300">Clear</button>
+        <!-- Main Workspace -->
+        <section class="lg:col-span-9 flex flex-col space-y-4">
+            
+            <!-- Tab Controls & Search -->
+            <div class="bg-slate-900/80 rounded-xl p-2 border border-slate-800 flex justify-between items-center gap-4">
+                <div class="flex space-x-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                    <button onclick="switchTab('terminalTab', this)" class="tab-btn active px-3.5 py-1.5 text-xs font-medium rounded-md bg-slate-800 text-white transition flex items-center gap-2">
+                        <i class="fa-solid fa-terminal text-indigo-400"></i> Terminal Log
+                    </button>
+                    <button onclick="switchTab('cachesTab', this)" class="tab-btn px-3.5 py-1.5 text-xs font-medium rounded-md text-slate-400 hover:text-white transition flex items-center gap-2">
+                        <i class="fa-solid fa-box text-indigo-400"></i> Geocaches List
+                    </button>
                 </div>
-                <div id="terminal" class="flex-1 overflow-y-auto space-y-1 text-slate-300">
-                    <div>[System Ready] Click 'Run Python Proxy Task' to begin backend session queries.</div>
+
+                <div class="flex items-center space-x-2">
+                    <button onclick="exportJSON()" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-slate-300 transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-download text-indigo-400"></i> Export JSON
+                    </button>
                 </div>
+            </div>
+
+            <!-- Viewport Container -->
+            <div class="flex-1 bg-slate-900/80 rounded-xl border border-slate-800 flex flex-col overflow-hidden h-[580px]">
+                
+                <!-- Terminal Output View -->
+                <div id="terminalTab" class="tab-view flex-1 flex flex-col bg-slate-950 font-mono text-xs p-4 overflow-hidden">
+                    <div class="flex justify-between items-center pb-2 mb-3 border-b border-slate-800/80 text-slate-500 text-[11px]">
+                        <span>Execution Live Stream</span>
+                        <button onclick="document.getElementById('terminalOutput').innerHTML=''" class="hover:text-slate-300 transition">Clear Console</button>
+                    </div>
+                    <div id="terminalOutput" class="flex-1 overflow-y-auto space-y-1.5 text-slate-300">
+                        <div class="text-slate-600">[System Ready] Enter session cookie and click 'Run Python Proxy Task'.</div>
+                    </div>
+                </div>
+
+                <!-- Geocaches Data Table View -->
+                <div id="cachesTab" class="tab-view hidden flex-1 flex flex-col overflow-hidden bg-slate-950">
+                    <div class="p-3 border-b border-slate-800 bg-slate-900/40 flex justify-between items-center gap-3">
+                        <div class="flex items-center gap-2 flex-1 max-w-xl">
+                            <input type="text" id="searchInput" onkeyup="applyFilters()" placeholder="Filter by GC Code, Owner, Name, Status, Date, Notes..."
+                                class="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-slate-200 focus:outline-none focus:border-indigo-500">
+                            
+                            <select id="typeFilter" onchange="applyFilters()" class="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500">
+                                <option value="ALL">All Types</option>
+                                <option value="Traditional">Traditional</option>
+                                <option value="Mystery">Mystery</option>
+                                <option value="Multi-cache">Multi-cache</option>
+                                <option value="Earthcache">Earthcache</option>
+                                <option value="Event">Event</option>
+                                <option value="Letterbox">Letterbox</option>
+                                <option value="Wherigo">Wherigo</option>
+                                <option value="Virtual">Virtual</option>
+                            </select>
+                        </div>
+                        <span id="batchSizeBadge" class="text-[11px] font-mono text-slate-500">Batch Size: 20 Caches</span>
+                    </div>
+                    
+                    <div class="overflow-x-auto overflow-y-auto flex-1">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead class="bg-slate-900 sticky top-0 border-b border-slate-800 text-slate-400 font-mono text-[11px] uppercase tracking-wider select-none">
+                                <tr>
+                                    <th onclick="sortTable('code')" class="py-3 px-3 cursor-pointer hover:text-white transition">
+                                        GC Code <span id="sort-code" class="text-[10px] text-slate-600">↕</span>
+                                    </th>
+                                    <th onclick="sortTable('owner')" class="py-3 px-3 cursor-pointer hover:text-white transition">
+                                        Owner Name <span id="sort-owner" class="text-[10px] text-slate-600">↕</span>
+                                    </th>
+                                    <th onclick="sortTable('status')" class="py-3 px-3 cursor-pointer hover:text-white transition">
+                                        Found Status <span id="sort-status" class="text-[10px] text-slate-600">↕</span>
+                                    </th>
+                                    <th onclick="sortTable('logDate')" class="py-3 px-3 cursor-pointer hover:text-white transition">
+                                        Found Date <span id="sort-logDate" class="text-[10px] text-slate-600">↕</span>
+                                    </th>
+                                    <th onclick="sortTable('type')" class="py-3 px-2 text-center cursor-pointer hover:text-white transition" title="Cache Type">
+                                        Type <span id="sort-type" class="text-[10px] text-slate-600">↕</span>
+                                    </th>
+                                    <th onclick="sortTable('name')" class="py-3 px-3 cursor-pointer hover:text-white transition">
+                                        Cache Name <span id="sort-name" class="text-[10px] text-slate-600">↕</span>
+                                    </th>
+                                    <th onclick="sortTable('difficulty')" class="py-3 px-2 text-center cursor-pointer hover:text-white transition">
+                                        D <span id="sort-difficulty" class="text-[10px] text-slate-600">↕</span>
+                                    </th>
+                                    <th onclick="sortTable('terrain')" class="py-3 px-2 text-center cursor-pointer hover:text-white transition">
+                                        T <span id="sort-terrain" class="text-[10px] text-slate-600">↕</span>
+                                    </th>
+                                    <th class="py-3 px-3">Coordinates (Click to Copy)</th>
+                                    <th class="py-3 px-3">Personal Note</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cachesTableBody" class="divide-y divide-slate-800/50 font-mono text-slate-300">
+                                <tr>
+                                    <td colspan="10" class="text-center py-12 text-slate-600 font-sans">No geocaches fetched yet.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
             </div>
         </section>
     </main>
 
+    <!-- Copy Toast Notification -->
+    <div id="copyToast" class="fixed bottom-6 right-6 bg-emerald-600 text-white font-mono text-xs px-4 py-2.5 rounded-lg shadow-xl opacity-0 pointer-events-none transition-all duration-200 transform translate-y-2 flex items-center gap-2 z-50">
+        <i class="fa-solid fa-check"></i>
+        <span id="copyToastText">Copied to clipboard!</span>
+    </div>
+
     <script>
-        async function log(msg, type = 'info') {
-            const term = document.getElementById('terminal');
+        const state = { caches: [], isExecuting: false, sortCol: null, sortAsc: true };
+
+        const TYPE_ID_MAP = {
+            2: 'Traditional', 3: 'Multi-cache', 4: 'Virtual', 5: 'Letterbox',
+            6: 'Event', 8: 'Mystery', 11: 'Webcam', 13: 'Locationless',
+            137: 'Earthcache', 453: 'Mega-Event', 1858: 'Wherigo'
+        };
+
+        function extractValue(val, fallback = 'N/A') {
+            if (!val && val !== 0) return fallback;
+            if (typeof val === 'string' || typeof val === 'number') return String(val);
+            if (typeof val === 'object') return val.username || val.name || val.ownerName || val.placedBy || val.code || fallback;
+            return fallback;
+        }
+
+        function parseCacheType(item) {
+            const rawType = item.geocacheType || item.cacheType || item.type || item.geocacheTypeId || item.typeId;
+            if (typeof rawType === 'number' && TYPE_ID_MAP[rawType]) return TYPE_ID_MAP[rawType];
+            if (typeof rawType === 'string') return rawType;
+            return 'Traditional';
+        }
+
+        function toDDM(lat, lng) {
+            if (lat === undefined || lng === undefined || lat === null || lng === null || isNaN(lat) || isNaN(lng)) return '-';
+            const latNum = parseFloat(lat);
+            const lngNum = parseFloat(lng);
+            if (Math.abs(latNum) > 90 || Math.abs(lngNum) > 180) return '-';
+
+            const latHemi = latNum >= 0 ? 'N' : 'S';
+            const latAbs = Math.abs(latNum);
+            const latDeg = Math.floor(latAbs);
+            const latMin = ((latAbs - latDeg) * 60).toFixed(3).padStart(6, '0');
+            const lngHemi = lngNum >= 0 ? 'E' : 'W';
+            const lngAbs = Math.abs(lngNum);
+            const lngDeg = Math.floor(lngAbs).toString().padStart(3, '0');
+            const lngMin = ((lngAbs - Math.floor(lngAbs)) * 60).toFixed(3).padStart(6, '0');
+
+            return `${latHemi} ${latDeg}° ${latMin}' ${lngHemi} ${lngDeg}° ${lngMin}'`;
+        }
+
+        function extractCoordsFromProxyItem(item) {
+            const corr = item.userCorrectedCoordinates;
+            if (corr && typeof corr.latitude === 'number' && typeof corr.longitude === 'number') {
+                return { ddm: toDDM(corr.latitude, corr.longitude), isCorrected: true };
+            }
+
+            const posted = item.postedCoordinates;
+            if (posted && typeof posted.latitude === 'number' && typeof posted.longitude === 'number') {
+                return { ddm: toDDM(posted.latitude, posted.longitude), isCorrected: false };
+            }
+
+            return { ddm: '-', isCorrected: false };
+        }
+
+        function getCacheTypeBadge(typeStr) {
+            const raw = String(typeStr || '').toLowerCase();
+            let label = typeStr || 'Traditional';
+            let colorClass = 'bg-slate-800 text-slate-300 border-slate-700';
+            let icon = 'fa-box';
+
+            if (raw.includes('traditional')) { colorClass = 'bg-emerald-950/80 text-emerald-400 border-emerald-800'; icon = 'fa-box-archive'; }
+            else if (raw.includes('mystery') || raw.includes('unknown')) { colorClass = 'bg-indigo-950/80 text-indigo-400 border-indigo-800'; icon = 'fa-question'; }
+            else if (raw.includes('multi')) { colorClass = 'bg-amber-950/80 text-amber-400 border-amber-800'; icon = 'fa-layer-group'; }
+            else if (raw.includes('earth')) { colorClass = 'bg-teal-950/80 text-teal-400 border-teal-800'; icon = 'fa-globe'; }
+            else if (raw.includes('event')) { colorClass = 'bg-purple-950/80 text-purple-400 border-purple-800'; icon = 'fa-calendar-day'; }
+            else if (raw.includes('letterbox')) { colorClass = 'bg-rose-950/80 text-rose-400 border-rose-800'; icon = 'fa-envelope-open-text'; }
+
+            return `<span class="inline-flex items-center justify-center h-6 w-6 rounded border ${colorClass}" title="${escapeHtml(label)}"><i class="fa-solid ${icon} text-[11px]"></i></span>`;
+        }
+
+        // Unified copy handler with secure API + execCommand fallback
+        function copyTextToClipboard(text, label = 'Content') {
+            if (!text || text === '-') return;
+
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showToast(`Copied ${label}`);
+                }).catch(() => fallbackCopy(text, label));
+            } else {
+                fallbackCopy(text, label);
+            }
+        }
+
+        function fallbackCopy(text, label) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                showToast(`Copied ${label}`);
+            } catch (err) {
+                console.error('Fallback copy failed', err);
+            }
+            document.body.removeChild(textArea);
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('copyToast');
+            document.getElementById('copyToastText').textContent = msg;
+            toast.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-2');
+            toast.classList.add('opacity-100', 'translate-y-0');
+            setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-y-0');
+                toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-2');
+            }, 2200);
+        }
+
+        function log(msg, type = 'info') {
+            const term = document.getElementById('terminalOutput');
+            if (!term) return;
             const div = document.createElement('div');
-            div.className = type === 'error' ? 'text-rose-400' : (type === 'success' ? 'text-emerald-400' : 'text-slate-300');
-            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            let color = 'text-slate-300';
+            let prefix = 'INF';
+
+            if (type === 'success') { color = 'text-emerald-400'; prefix = 'OK '; }
+            else if (type === 'warn') { color = 'text-amber-400'; prefix = 'WRN'; }
+            else if (type === 'error') { color = 'text-rose-400'; prefix = 'ERR'; }
+
+            div.className = `flex items-start gap-2 ${color}`;
+            div.innerHTML = `<span class="text-slate-600 select-none">${new Date().toLocaleTimeString()}</span><span class="font-bold text-[10px] px-1 rounded bg-slate-900 border border-slate-800 select-none">${prefix}</span><span class="flex-1 break-all">${escapeHtml(msg)}</span>`;
             term.appendChild(div);
             term.scrollTop = term.scrollHeight;
         }
 
+        function setStatus(status) {
+            const dot = document.getElementById('statusDot');
+            document.getElementById('statusText').textContent = status;
+            dot.className = status === 'RUNNING' ? "inline-block h-2 w-2 rounded-full bg-indigo-500 animate-ping mr-1.5" :
+                            status === 'SUCCESS' ? "inline-block h-2 w-2 rounded-full bg-emerald-500 mr-1.5" :
+                            status === 'ERROR' ? "inline-block h-2 w-2 rounded-full bg-rose-500 mr-1.5" : "inline-block h-2 w-2 rounded-full bg-slate-500 mr-1.5";
+        }
+
         async function startExtraction() {
+            if (state.isExecuting) return;
             const cookie = document.getElementById('cookieInput').value.trim();
             const bbox = document.getElementById('bboxInput').value.trim();
-            
-            if (!cookie) {
-                alert('Please input your cookie string.');
-                return;
-            }
+            const limitVal = parseInt(document.getElementById('cacheLimitInput').value.trim()) || 20;
 
-            log('Step 1: Requesting map page via Python backend session...', 'info');
+            if (!cookie) { alert('Please input cookie.'); return; }
+
+            state.isExecuting = true;
+            setStatus('RUNNING');
+            document.getElementById('submitBtn').disabled = true;
+            document.getElementById('batchSizeBadge').textContent = `Batch Size: First ${limitVal} Caches`;
 
             try {
-                // 1. Fetch map page to parse buildId
+                log('Step 1: Fetching map page...', 'info');
                 const mapRes = await fetch('/api/proxy', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ endpoint: '/play/map', cookie: cookie })
+                    body: JSON.stringify({ endpoint: '/play/map', cookie })
                 });
-                
                 const mapData = await mapRes.json();
-                if (!mapRes.ok) throw new Error(mapData.error || 'Failed to fetch map page');
-
                 const html = mapData.html || '';
-                const buildIdMatch = html.match(/"buildId"\s*:\s*"([^"]+)"/);
-                if (!buildIdMatch) throw new Error('Could not parse buildId from Next.js data.');
-                
-                const buildId = buildIdMatch[1];
-                log(`Successfully extracted buildId: ${buildId}`, 'success');
 
-                // 2. Fetch Bounding Box JSON
-                log('Step 2: Fetching bounding box results...', 'info');
-                const mapJsonEndpoint = `/_next/data/${buildId}/en/play/map.json?box=${encodeURIComponent(bbox)}`;
-                
+                const buildIdMatch = html.match(/"buildId"\s*:\s*"([^"]+)"/) || html.match(/\/_next\/static\/([^/]+)\/_buildManifest/);
+                if (!buildIdMatch) throw new Error('Failed to parse buildId. Check cookie.');
+                const buildId = buildIdMatch[1];
+
+                log(`Step 2: Fetching bbox data for ${bbox}...`, 'info');
+                const jsonEndpoint = `/_next/data/${buildId}/en/play/map.json?box=${encodeURIComponent(bbox)}`;
                 const jsonRes = await fetch('/api/proxy', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ endpoint: mapJsonEndpoint, cookie: cookie })
+                    body: JSON.stringify({ endpoint: jsonEndpoint, cookie })
                 });
 
                 const jsonData = await jsonRes.json();
-                if (!jsonRes.ok) throw new Error(jsonData.error || 'Failed to fetch map json');
+                let searchResults = jsonData?.pageProps?.searchResults?.results || jsonData?.pageProps?.mapData?.geocaches || [];
+                
+                if (searchResults.length > limitVal) searchResults = searchResults.slice(0, limitVal);
 
-                const results = jsonData?.pageProps?.searchResults?.results || [];
-                log(`Successfully fetched ${results.length} geocaches via Python backend!`, 'success');
+                state.caches = searchResults.map(item => {
+                    const ownerName = extractValue(item.owner || item.ownerName || item.placedBy, '-');
+                    const isOwner = Boolean(item.isOwner) || ownerName.toLowerCase() === 'gordon942';
+                    const hasFound = Boolean(item.userState?.hasFound || item.hasFound);
+                    const coordsData = extractCoordsFromProxyItem(item);
 
+                    let statusLabel = 'Unfound';
+                    let badgeClass = 'bg-slate-900 text-slate-500 border-slate-800';
+                    let icon = 'fa-circle';
+
+                    if (isOwner) {
+                        statusLabel = 'Owner';
+                        badgeClass = 'bg-amber-950/80 text-amber-400 border-amber-800';
+                        icon = 'fa-user-gear';
+                    } else if (hasFound) {
+                        statusLabel = 'Found';
+                        badgeClass = 'bg-emerald-950/80 text-emerald-400 border-emerald-800';
+                        icon = 'fa-check-circle';
+                    }
+
+                    return {
+                        code: item.code || item.gcCode,
+                        owner: ownerName,
+                        name: extractValue(item.name || item.geocacheName, 'N/A'),
+                        type: parseCacheType(item),
+                        difficulty: extractValue(item.difficulty, '-'),
+                        terrain: extractValue(item.terrain, '-'),
+                        ddmCoords: coordsData.ddm,
+                        isCorrected: coordsData.isCorrected,
+                        personalNote: '',
+                        status: statusLabel,
+                        isOwner: isOwner,
+                        hasFound: hasFound,
+                        logDate: '',
+                        statusBadgeClass: badgeClass,
+                        statusIcon: icon
+                    };
+                });
+
+                renderCachesTable();
+
+                const gcCodes = state.caches.map(c => c.code);
+                log(`Step 3: Enriching ${gcCodes.length} caches (Notes & Logs)...`, 'info');
+                const enrichRes = await fetch('/api/enrich', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ gc_codes: gcCodes, cookie, limit: limitVal })
+                });
+
+                if (enrichRes.ok) {
+                    const enrichedData = await enrichRes.json();
+                    state.caches.forEach(cache => {
+                        const details = enrichedData[cache.code];
+                        if (details) {
+                            if (details.ownerName) cache.owner = details.ownerName;
+                            cache.personalNote = details.personalNote || '';
+                            cache.logDate = details.foundDate || '';
+
+                            if (details.isOwner || (cache.owner && cache.owner.toLowerCase() === 'gordon942')) {
+                                cache.isOwner = true;
+                                cache.status = 'Owner';
+                                cache.statusBadgeClass = 'bg-amber-950/80 text-amber-400 border-amber-800';
+                                cache.statusIcon = 'fa-user-gear';
+                            } else if (details.hasFound) {
+                                cache.hasFound = true;
+                                cache.status = 'Found';
+                                cache.statusBadgeClass = 'bg-emerald-950/80 text-emerald-400 border-emerald-800';
+                                cache.statusIcon = 'fa-check-circle';
+                            }
+                        }
+                    });
+                }
+
+                renderCachesTable();
+                setStatus('SUCCESS');
             } catch (err) {
                 log(`Error: ${err.message}`, 'error');
+                setStatus('ERROR');
+            } finally {
+                state.isExecuting = false;
+                document.getElementById('submitBtn').disabled = false;
             }
+        }
+
+        function renderCachesTable() {
+            const tbody = document.getElementById('cachesTableBody');
+            document.getElementById('statCaches').textContent = state.caches.length;
+            document.getElementById('statSolved').textContent = state.caches.filter(c => c.status === 'Found' || c.status === 'Owner' || c.personalNote).length;
+
+            if (state.caches.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="10" class="text-center py-12 text-slate-600 font-sans">No geocaches found.</td></tr>`;
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+            state.caches.forEach(cache => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-900/60 transition border-b border-slate-800/30';
+                tr.setAttribute('data-type', cache.type);
+
+                const safeNote = escapeHtml(cache.personalNote).replace(/'/g, "\\'");
+                const safeCoords = escapeHtml(cache.ddmCoords).replace(/'/g, "\\'");
+
+                tr.innerHTML = `
+                    <td class="py-2.5 px-3"><a href="https://www.geocaching.com/geocache/${cache.code}" target="_blank" class="font-bold text-indigo-400 hover:underline">${escapeHtml(cache.code)}</a></td>
+                    <td class="py-2.5 px-3 text-slate-300 font-sans">${escapeHtml(cache.owner)}</td>
+                    <td class="py-2.5 px-3">
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border ${cache.statusBadgeClass}">
+                            <i class="fa-solid ${cache.statusIcon} text-[9px]"></i> ${cache.status}
+                        </span>
+                    </td>
+                    <td class="py-2.5 px-3 text-slate-400 font-mono text-[11px]">${cache.logDate ? escapeHtml(cache.logDate) : '<span class="text-slate-600">-</span>'}</td>
+                    <td class="py-2.5 px-2 text-center">${getCacheTypeBadge(cache.type)}</td>
+                    <td class="py-2.5 px-3 font-sans text-white">${escapeHtml(cache.name)}</td>
+                    <td class="py-2.5 px-2 text-center text-slate-300">${escapeHtml(cache.difficulty)}</td>
+                    <td class="py-2.5 px-2 text-center text-slate-300">${escapeHtml(cache.terrain)}</td>
+                    <td class="py-2 px-3">
+                        ${cache.ddmCoords !== '-' ? `
+                            <div class="flex items-center gap-1.5 group cursor-pointer" onclick="copyTextToClipboard('${safeCoords}', '${cache.code} Coords')">
+                                <span class="inline-block text-[9px] font-mono px-1.5 py-0.2 rounded border ${cache.isCorrected ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800' : 'bg-slate-900 text-slate-500 border-slate-800'} select-none">
+                                    ${cache.isCorrected ? 'Corrected' : 'Posted'}
+                                </span>
+                                <span class="${cache.isCorrected ? 'text-emerald-400 font-bold' : 'text-slate-300'} font-mono hover:underline">${escapeHtml(cache.ddmCoords)}</span>
+                                <button class="text-slate-500 hover:text-indigo-400 text-xs transition p-1" title="Copy Coordinates">
+                                    <i class="fa-regular fa-copy"></i>
+                                </button>
+                            </div>
+                        ` : '<span class="text-slate-600">-</span>'}
+                    </td>
+                    <td class="py-2 px-3">
+                        ${cache.personalNote ? `
+                            <div class="flex items-center gap-2 group cursor-pointer" onclick="copyTextToClipboard('${safeNote}', '${cache.code} Note')">
+                                <span class="text-amber-400 font-sans text-xs truncate max-w-[200px] inline-block hover:underline" title="${safeNote}">
+                                    <i class="fa-solid fa-sticky-note mr-1"></i>${escapeHtml(cache.personalNote)}
+                                </span>
+                                <button class="text-slate-500 hover:text-indigo-400 text-xs transition p-1" title="Copy Personal Note">
+                                    <i class="fa-regular fa-copy"></i>
+                                </button>
+                            </div>
+                        ` : '<span class="text-slate-600">-</span>'}
+                    </td>
+                `;
+                fragment.appendChild(tr);
+            });
+
+            tbody.innerHTML = '';
+            tbody.appendChild(fragment);
+            applyFilters();
+        }
+
+        function sortTable(columnKey) {
+            if (state.sortCol === columnKey) state.sortAsc = !state.sortAsc;
+            else { state.sortCol = columnKey; state.sortAsc = true; }
+
+            state.caches.sort((a, b) => {
+                let valA = a[columnKey] || '', valB = b[columnKey] || '';
+                const cmp = String(valA).localeCompare(String(valB), undefined, { numeric: true });
+                return state.sortAsc ? cmp : -cmp;
+            });
+            renderCachesTable();
+        }
+
+        function applyFilters() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const selectedType = document.getElementById('typeFilter').value.toLowerCase();
+            document.querySelectorAll('#cachesTableBody tr').forEach(row => {
+                if (row.cells.length === 1) return;
+                const textMatch = row.textContent.toLowerCase().includes(query);
+                const rowType = (row.getAttribute('data-type') || '').toLowerCase();
+                row.style.display = (textMatch && (selectedType === 'all' || rowType.includes(selectedType))) ? '' : 'none';
+            });
+        }
+
+        function switchTab(tabId, btn) {
+            document.querySelectorAll('.tab-view').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('bg-slate-800', 'text-white'); b.classList.add('text-slate-400'); });
+            document.getElementById(tabId).classList.remove('hidden');
+            btn.classList.add('bg-slate-800', 'text-white');
+        }
+
+        function clearData() {
+            state.caches = [];
+            renderCachesTable();
+            document.getElementById('terminalOutput').innerHTML = '<div class="text-slate-600">[System Cleared] Console reset.</div>';
+            setStatus('Ready');
+        }
+
+        function exportJSON() {
+            if (!state.caches.length) return alert('No caches available to export.');
+            const blob = new Blob([JSON.stringify(state.caches, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `geocaches_${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function escapeHtml(str) {
+            return String(str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
         }
     </script>
 </body>
