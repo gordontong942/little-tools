@@ -22,22 +22,32 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body { font-family: 'Inter', sans-serif; }
-        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #090d16; }
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
     </style>
 </head>
-<body class="bg-slate-950 text-slate-200 min-h-screen flex flex-col antialiased">
+<body class="bg-slate-950 text-slate-200 h-screen flex flex-col antialiased overflow-hidden">
 
     <!-- Header -->
-    <header class="h-14 border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-50 flex items-center px-6 justify-between">
+    <header class="h-14 shrink-0 border-b border-slate-800 bg-slate-900/60 backdrop-blur z-50 flex items-center px-6 justify-between">
         <div class="flex items-center space-x-3">
             <div class="h-8 w-8 rounded-lg bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
                 <i class="fa-solid fa-satellite-dish text-sm"></i>
             </div>
             <span class="font-semibold text-sm text-white">Geocaching Python Backend Extractor</span>
         </div>
-        <div class="flex items-center space-x-3">
+
+        <!-- Inline Stats & Status -->
+        <div class="flex items-center space-x-4">
+            <div class="hidden sm:flex items-center space-x-3 text-xs font-mono">
+                <span class="bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-md text-slate-400">
+                    Listed: <strong id="statCaches" class="text-indigo-400">0</strong>
+                </span>
+                <span class="bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-md text-slate-400">
+                    Solved/Owned: <strong id="statSolved" class="text-emerald-400">0</strong>
+                </span>
+            </div>
             <div id="statusBadge" class="text-xs font-mono text-slate-400 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-full flex items-center">
                 <span id="statusDot" class="inline-block h-2 w-2 rounded-full bg-slate-500 mr-1.5"></span>
                 <span id="statusText">Ready</span>
@@ -45,158 +55,184 @@
         </div>
     </header>
 
-    <!-- Main Content Grid -->
-    <main class="flex-1 max-w-[1850px] w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <!-- Main Content Container -->
+    <main class="flex-1 max-w-[1900px] w-full mx-auto p-4 sm:p-6 flex flex-col space-y-4 overflow-hidden">
         
-        <!-- Sidebar Controls -->
-        <aside class="lg:col-span-3 space-y-4">
-            <div class="bg-slate-900/80 rounded-xl p-4 border border-slate-800 space-y-4">
-                <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    <i class="fa-solid fa-sliders text-indigo-400 mr-1.5"></i> Configuration
-                </h2>
+        <!-- Top Navigation Tabs & Export -->
+        <div class="shrink-0 bg-slate-900/80 rounded-xl p-2 border border-slate-800 flex justify-between items-center gap-4">
+            <div class="flex space-x-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                <button id="btnConfigTab" onclick="switchTab('configTab', this)" class="tab-btn active px-4 py-1.5 text-xs font-medium rounded-md bg-slate-800 text-white transition flex items-center gap-2">
+                    <i class="fa-solid fa-sliders text-indigo-400"></i> Config & Terminal Log
+                </button>
+                <button id="btnCachesTab" onclick="switchTab('cachesTab', this)" class="tab-btn px-4 py-1.5 text-xs font-medium rounded-md text-slate-400 hover:text-white transition flex items-center gap-2">
+                    <i class="fa-solid fa-table-list text-indigo-400"></i> Geocaches List
+                </button>
+            </div>
 
-                <div class="space-y-1.5">
-                    <label class="text-xs font-medium text-slate-300">Cookie Header String <span class="text-indigo-400">*</span></label>
-                    <textarea id="cookieInput" rows="4" placeholder="Paste full 'gspkauth=...; gspk=...' copied from DevTools..."
-                        class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:border-indigo-500 focus:outline-none resize-none placeholder:text-slate-600"></textarea>
+            <div class="flex items-center space-x-2">
+                <button onclick="exportJSON()" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-slate-300 transition flex items-center gap-1.5">
+                    <i class="fa-solid fa-download text-indigo-400"></i> Export JSON
+                </button>
+            </div>
+        </div>
+
+        <!-- TAB 1: Config + Terminal Log -->
+        <div id="configTab" class="tab-view grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 min-h-0 overflow-y-auto lg:overflow-hidden">
+            
+            <!-- Left: Configuration Panel -->
+            <div class="lg:col-span-4 bg-slate-900/80 rounded-xl p-5 border border-slate-800 space-y-4 flex flex-col justify-between overflow-y-auto">
+                <div class="space-y-4">
+                    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-800 pb-2.5">
+                        <i class="fa-solid fa-gear text-indigo-400 mr-1.5"></i> Search & Session Configuration
+                    </h2>
+
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-medium text-slate-300">Cookie Header String <span class="text-indigo-400">*</span></label>
+                        <textarea id="cookieInput" rows="4" placeholder="Paste full 'gspkauth=...; gspk=...' copied from DevTools..."
+                            class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:border-indigo-500 focus:outline-none resize-none placeholder:text-slate-600"></textarea>
+                    </div>
+
+                    <!-- Cascading Country + Region Selector -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-medium text-slate-300">Country (ot=country)</label>
+                            <select id="countrySelect" onchange="handleCountryChange()"
+                                class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:border-indigo-500 focus:outline-none">
+                                <option value="Hong Kong">Hong Kong (oid=91)</option>
+                                <option value="China">China (oid=43)</option>
+                                <option value="Taiwan">Taiwan (oid=196)</option>
+                                <option value="Japan">Japan (oid=104)</option>
+                            </select>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-medium text-slate-300">Region / Prefecture</label>
+                            <select id="regionSelect"
+                                class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:border-indigo-500 focus:outline-none">
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Found Status Filter & First N Caches -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-medium text-slate-300">Found Status (Request Param)</label>
+                            <select id="foundFilterConfig"
+                                class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:border-indigo-500 focus:outline-none">
+                                <option value="NOT_FOUND" selected>Not Found Caches Only</option>
+                                <option value="ALL">All Caches</option>
+                                <option value="FOUND">Found (Include Owned)</option>
+                                <option value="FOUND_EXCLUDE_OWNED">Found (Exclude Owned)</option>
+                                <option value="SOLVED">Only Solved Caches</option>
+                                <option value="OWNED">Owned Caches Only</option>
+                            </select>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-medium text-slate-300">First N (-1 / all = All)</label>
+                            <input type="text" id="cacheLimitInput" value="all" placeholder="all"
+                                oninput="this.dataset.userEdited = 'true'"
+                                class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:outline-none focus:border-indigo-500">
+                        </div>
+                    </div>
+
+                    <!-- Deep Enrichment Toggle -->
+                    <div class="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5">
+                        <div>
+                            <div class="text-xs font-medium text-slate-300">Fetch Personal Notes & Found Dates</div>
+                            <div class="text-[10px] text-slate-500">Turn off for instant results (uses 15 concurrent workers when on)</div>
+                        </div>
+                        <input type="checkbox" id="enrichToggle" checked class="h-4 w-4 accent-indigo-600 rounded cursor-pointer">
+                    </div>
                 </div>
 
-                <div class="space-y-1.5">
-                    <label class="text-xs font-medium text-slate-300">Bounding Box Coordinates</label>
-                    <input type="text" id="bboxInput" value="22.55,113.85,22.15,114.40" placeholder="MaxLat, MinLng, MinLat, MaxLng"
-                        class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:outline-none">
-                    <p class="text-[10px] font-mono text-slate-500">Format: <code>MaxLat,MinLng,MinLat,MaxLng</code></p>
-                </div>
-
-                <div class="space-y-1.5">
-                    <label class="text-xs font-medium text-slate-300">Fetch First N Caches</label>
-                    <input type="number" id="cacheLimitInput" value="20" min="1" max="100" placeholder="20"
-                        class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:outline-none focus:border-indigo-500">
-                </div>
-
-                <div class="pt-2 flex gap-2">
-                    <button onclick="startExtraction()" id="submitBtn" class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 px-4 rounded-lg text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20">
+                <div class="pt-4 border-t border-slate-800 flex gap-2">
+                    <button onclick="startExtraction()" id="submitBtn" class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 px-4 rounded-lg text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20">
                         <i class="fa-solid fa-bolt"></i> Run Python Proxy Task
                     </button>
-                    <button onclick="clearData()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2 px-3 rounded-lg text-xs transition">
+                    <button onclick="clearData()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2.5 px-3.5 rounded-lg text-xs transition" title="Reset All Data">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </div>
             </div>
 
-            <!-- Stats Summary Cards -->
-            <div class="grid grid-cols-2 gap-3">
-                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                    <span class="text-[10px] font-mono text-slate-500 uppercase tracking-wider block mb-1">Caches Found</span>
-                    <span id="statCaches" class="text-2xl font-bold font-mono text-indigo-400">0</span>
+            <!-- Right: Execution Terminal Log -->
+            <div class="lg:col-span-8 bg-slate-950 rounded-xl border border-slate-800 flex flex-col overflow-hidden min-h-[320px] font-mono text-xs p-4">
+                <div class="flex justify-between items-center pb-2.5 mb-3 border-b border-slate-800/80 text-slate-400 text-[11px] shrink-0">
+                    <span><i class="fa-solid fa-terminal text-indigo-400 mr-1.5"></i> Execution Live Stream</span>
+                    <button onclick="document.getElementById('terminalOutput').innerHTML=''" class="hover:text-white transition">Clear Console</button>
                 </div>
-                <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
-                    <span class="text-[10px] font-mono text-slate-500 uppercase tracking-wider block mb-1">Found / Solved / Owned</span>
-                    <span id="statSolved" class="text-2xl font-bold font-mono text-emerald-400">0</span>
-                </div>
-            </div>
-        </aside>
-
-        <!-- Main Workspace -->
-        <section class="lg:col-span-9 flex flex-col space-y-4">
-            
-            <!-- Tab Controls & Search -->
-            <div class="bg-slate-900/80 rounded-xl p-2 border border-slate-800 flex justify-between items-center gap-4">
-                <div class="flex space-x-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
-                    <button onclick="switchTab('terminalTab', this)" class="tab-btn active px-3.5 py-1.5 text-xs font-medium rounded-md bg-slate-800 text-white transition flex items-center gap-2">
-                        <i class="fa-solid fa-terminal text-indigo-400"></i> Terminal Log
-                    </button>
-                    <button onclick="switchTab('cachesTab', this)" class="tab-btn px-3.5 py-1.5 text-xs font-medium rounded-md text-slate-400 hover:text-white transition flex items-center gap-2">
-                        <i class="fa-solid fa-box text-indigo-400"></i> Geocaches List
-                    </button>
-                </div>
-
-                <div class="flex items-center space-x-2">
-                    <button onclick="exportJSON()" class="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-slate-300 transition flex items-center gap-1.5">
-                        <i class="fa-solid fa-download text-indigo-400"></i> Export JSON
-                    </button>
+                <div id="terminalOutput" class="flex-1 overflow-y-auto space-y-1.5 text-slate-300">
+                    <div class="text-slate-600">[System Ready] Defaulted to Not Found Caches Only (hf=1&amp;nfb=gordon942).</div>
                 </div>
             </div>
 
-            <!-- Viewport Container -->
-            <div class="flex-1 bg-slate-900/80 rounded-xl border border-slate-800 flex flex-col overflow-hidden h-[580px]">
-                
-                <!-- Terminal Output View -->
-                <div id="terminalTab" class="tab-view flex-1 flex flex-col bg-slate-950 font-mono text-xs p-4 overflow-hidden">
-                    <div class="flex justify-between items-center pb-2 mb-3 border-b border-slate-800/80 text-slate-500 text-[11px]">
-                        <span>Execution Live Stream</span>
-                        <button onclick="document.getElementById('terminalOutput').innerHTML=''" class="hover:text-slate-300 transition">Clear Console</button>
-                    </div>
-                    <div id="terminalOutput" class="flex-1 overflow-y-auto space-y-1.5 text-slate-300">
-                        <div class="text-slate-600">[System Ready] Enter session cookie and click 'Run Python Proxy Task'.</div>
-                    </div>
-                </div>
+        </div>
 
-                <!-- Geocaches Data Table View -->
-                <div id="cachesTab" class="tab-view hidden flex-1 flex flex-col overflow-hidden bg-slate-950">
-                    <div class="p-3 border-b border-slate-800 bg-slate-900/40 flex justify-between items-center gap-3">
-                        <div class="flex items-center gap-2 flex-1 max-w-xl">
-                            <input type="text" id="searchInput" onkeyup="applyFilters()" placeholder="Filter by GC Code, Owner, Name, Status, Date, Notes..."
-                                class="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-slate-200 focus:outline-none focus:border-indigo-500">
-                            
-                            <select id="typeFilter" onchange="applyFilters()" class="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500">
-                                <option value="ALL">All Types</option>
-                                <option value="Traditional">Traditional</option>
-                                <option value="Mystery">Mystery</option>
-                                <option value="Multi-cache">Multi-cache</option>
-                                <option value="Earthcache">Earthcache</option>
-                                <option value="Event">Event</option>
-                                <option value="Letterbox">Letterbox</option>
-                                <option value="Wherigo">Wherigo</option>
-                                <option value="Virtual">Virtual</option>
-                            </select>
-                        </div>
-                        <span id="batchSizeBadge" class="text-[11px] font-mono text-slate-500">Batch Size: 20 Caches</span>
-                    </div>
+        <!-- TAB 2: Geocaches Data Table View (with Frozen Sticky Header) -->
+        <div id="cachesTab" class="tab-view hidden flex-1 min-h-0 flex flex-col overflow-hidden bg-slate-950 rounded-xl border border-slate-800">
+            <div class="shrink-0 p-3 border-b border-slate-800 bg-slate-900/40 flex flex-wrap justify-between items-center gap-3">
+                <div class="flex items-center gap-2 flex-1 max-w-2xl">
+                    <input type="text" id="searchInput" onkeyup="applyFilters()" placeholder="Filter by GC Code, Owner, Name, Status, Date, Notes..."
+                        class="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-slate-200 focus:outline-none focus:border-indigo-500">
                     
-                    <div class="overflow-x-auto overflow-y-auto flex-1">
-                        <table class="w-full text-left border-collapse text-xs">
-                            <thead class="bg-slate-900 sticky top-0 border-b border-slate-800 text-slate-400 font-mono text-[11px] uppercase tracking-wider select-none">
-                                <tr>
-                                    <th onclick="sortTable('code')" class="py-3 px-3 cursor-pointer hover:text-white transition">
-                                        GC Code <span id="sort-code" class="text-[10px] text-slate-600">↕</span>
-                                    </th>
-                                    <th onclick="sortTable('owner')" class="py-3 px-3 cursor-pointer hover:text-white transition">
-                                        Owner Name <span id="sort-owner" class="text-[10px] text-slate-600">↕</span>
-                                    </th>
-                                    <th onclick="sortTable('status')" class="py-3 px-3 cursor-pointer hover:text-white transition">
-                                        Found Status <span id="sort-status" class="text-[10px] text-slate-600">↕</span>
-                                    </th>
-                                    <th onclick="sortTable('logDate')" class="py-3 px-3 cursor-pointer hover:text-white transition">
-                                        Found Date <span id="sort-logDate" class="text-[10px] text-slate-600">↕</span>
-                                    </th>
-                                    <th onclick="sortTable('type')" class="py-3 px-2 text-center cursor-pointer hover:text-white transition" title="Cache Type">
-                                        Type <span id="sort-type" class="text-[10px] text-slate-600">↕</span>
-                                    </th>
-                                    <th onclick="sortTable('name')" class="py-3 px-3 cursor-pointer hover:text-white transition">
-                                        Cache Name <span id="sort-name" class="text-[10px] text-slate-600">↕</span>
-                                    </th>
-                                    <th onclick="sortTable('difficulty')" class="py-3 px-2 text-center cursor-pointer hover:text-white transition">
-                                        D <span id="sort-difficulty" class="text-[10px] text-slate-600">↕</span>
-                                    </th>
-                                    <th onclick="sortTable('terrain')" class="py-3 px-2 text-center cursor-pointer hover:text-white transition">
-                                        T <span id="sort-terrain" class="text-[10px] text-slate-600">↕</span>
-                                    </th>
-                                    <th class="py-3 px-3">Coordinates (Click to Copy)</th>
-                                    <th class="py-3 px-3">Personal Note</th>
-                                </tr>
-                            </thead>
-                            <tbody id="cachesTableBody" class="divide-y divide-slate-800/50 font-mono text-slate-300">
-                                <tr>
-                                    <td colspan="10" class="text-center py-12 text-slate-600 font-sans">No geocaches fetched yet.</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                    <select id="typeFilter" onchange="applyFilters()" class="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500">
+                        <option value="ALL">All Types</option>
+                        <option value="Traditional">Traditional</option>
+                        <option value="Mystery">Mystery</option>
+                        <option value="Multi-cache">Multi-cache</option>
+                        <option value="Earthcache">Earthcache</option>
+                        <option value="Event">Event</option>
+                        <option value="Letterbox">Letterbox</option>
+                        <option value="Wherigo">Wherigo</option>
+                        <option value="Virtual">Virtual</option>
+                    </select>
                 </div>
-
+                <span id="batchSizeBadge" class="text-[11px] font-mono text-slate-400">Batch Size: All Caches</span>
             </div>
-        </section>
+            
+            <!-- Scrollable Table Container so thead sticky top-0 freezes column headers -->
+            <div class="flex-1 min-h-0 overflow-auto relative">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead class="bg-slate-900 sticky top-0 z-20 shadow-[0_1px_0_0_#1e293b] text-slate-400 font-mono text-[11px] uppercase tracking-wider select-none">
+                        <tr>
+                            <th onclick="sortTable('code')" class="py-3 px-3 bg-slate-900 border-r border-slate-800/80 cursor-pointer hover:text-white transition">
+                                GC Code <span id="sort-code" class="text-[10px] text-slate-600">↕</span>
+                            </th>
+                            <th onclick="sortTable('owner')" class="py-3 px-3 bg-slate-900 border-r border-slate-800/80 cursor-pointer hover:text-white transition">
+                                Owner Name <span id="sort-owner" class="text-[10px] text-slate-600">↕</span>
+                            </th>
+                            <th onclick="sortTable('status')" class="py-3 px-3 bg-slate-900 border-r border-slate-800/80 cursor-pointer hover:text-white transition">
+                                Found Status <span id="sort-status" class="text-[10px] text-slate-600">↕</span>
+                            </th>
+                            <th onclick="sortTable('logDate')" class="py-3 px-3 bg-slate-900 border-r border-slate-800/80 cursor-pointer hover:text-white transition">
+                                Found Date <span id="sort-logDate" class="text-[10px] text-slate-600">↕</span>
+                            </th>
+                            <th onclick="sortTable('type')" class="py-3 px-2 bg-slate-900 border-r border-slate-800/80 text-center cursor-pointer hover:text-white transition" title="Cache Type">
+                                Type <span id="sort-type" class="text-[10px] text-slate-600">↕</span>
+                            </th>
+                            <th onclick="sortTable('name')" class="py-3 px-3 bg-slate-900 border-r border-slate-800/80 cursor-pointer hover:text-white transition">
+                                Cache Name <span id="sort-name" class="text-[10px] text-slate-600">↕</span>
+                            </th>
+                            <th onclick="sortTable('difficulty')" class="py-3 px-2 bg-slate-900 border-r border-slate-800/80 text-center cursor-pointer hover:text-white transition">
+                                D <span id="sort-difficulty" class="text-[10px] text-slate-600">↕</span>
+                            </th>
+                            <th onclick="sortTable('terrain')" class="py-3 px-2 bg-slate-900 border-r border-slate-800/80 text-center cursor-pointer hover:text-white transition">
+                                T <span id="sort-terrain" class="text-[10px] text-slate-600">↕</span>
+                            </th>
+                            <th class="py-3 px-3 bg-slate-900 border-r border-slate-800/80">Coordinates (Click to Copy)</th>
+                            <th class="py-3 px-3 bg-slate-900">Personal Note (Click to Copy)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cachesTableBody" class="divide-y divide-slate-800/60 font-mono text-slate-300">
+                        <tr>
+                            <td colspan="10" class="text-center py-12 text-slate-600 font-sans">No geocaches fetched yet.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
     </main>
 
     <!-- Copy Toast Notification -->
@@ -206,13 +242,161 @@
     </div>
 
     <script>
-        const state = { caches: [], isExecuting: false, sortCol: null, sortAsc: true };
+        const COUNTRY_CONFIG = {
+            "Hong Kong": {
+                oid: 91,
+                regions: [
+                    { name: "All Hong Kong (全香港)", st: "Hong Kong", lat: 22.44038, lng: 114.09898, r: 48.28, zoom: 10, bbox: null },
+                    { name: "Central & Western (中西區)", st: "Hong Kong", lat: 22.277, lng: 114.139, r: 4.5, zoom: 14, bbox: "22.292,114.113,22.261,114.165" },
+                    { name: "Wan Chai (灣仔區)", st: "Hong Kong", lat: 22.271, lng: 114.181, r: 3.5, zoom: 14, bbox: "22.286,114.163,22.255,114.198" },
+                    { name: "Eastern (東區)", st: "Hong Kong", lat: 22.274, lng: 114.222, r: 5.5, zoom: 13, bbox: "22.295,114.185,22.252,114.259" },
+                    { name: "Southern (南區)", st: "Hong Kong", lat: 22.234, lng: 114.194, r: 9.0, zoom: 12, bbox: "22.275,114.125,22.192,114.262" },
+                    { name: "Yau Tsim Mong (油尖旺區)", st: "Hong Kong", lat: 22.312, lng: 114.170, r: 3.5, zoom: 14, bbox: "22.330,114.155,22.293,114.185" },
+                    { name: "Sham Shui Po (深水埗區)", st: "Hong Kong", lat: 22.338, lng: 114.151, r: 4.0, zoom: 14, bbox: "22.353,114.122,22.323,114.180" },
+                    { name: "Kowloon City (九龍城區)", st: "Hong Kong", lat: 22.326, lng: 114.194, r: 4.5, zoom: 14, bbox: "22.350,114.172,22.301,114.215" },
+                    { name: "Wong Tai Sin (黃大仙區)", st: "Hong Kong", lat: 22.347, lng: 114.200, r: 4.0, zoom: 14, bbox: "22.362,114.178,22.331,114.222" },
+                    { name: "Kwun Tong (觀塘區)", st: "Hong Kong", lat: 22.313, lng: 114.225, r: 4.5, zoom: 14, bbox: "22.338,114.205,22.288,114.245" },
+                    { name: "Kwai Tsing (葵青區)", st: "Hong Kong", lat: 22.355, lng: 114.112, r: 5.5, zoom: 13, bbox: "22.382,114.075,22.328,114.148" },
+                    { name: "Tsuen Wan (荃灣區)", st: "Hong Kong", lat: 22.385, lng: 114.081, r: 8.5, zoom: 12, bbox: "22.425,114.020,22.345,114.142" },
+                    { name: "Tuen Mun (屯門區)", st: "Hong Kong", lat: 22.400, lng: 113.969, r: 9.0, zoom: 12, bbox: "22.445,113.902,22.355,114.035" },
+                    { name: "Yuen Long (元朗區)", st: "Hong Kong", lat: 22.460, lng: 114.045, r: 12.0, zoom: 12, bbox: "22.525,113.965,22.395,114.125" },
+                    { name: "North (北區)", st: "Hong Kong", lat: 22.514, lng: 114.193, r: 14.0, zoom: 12, bbox: "22.562,114.075,22.465,114.310" },
+                    { name: "Tai Po (大埔區)", st: "Hong Kong", lat: 22.460, lng: 114.278, r: 18.0, zoom: 11, bbox: "22.515,114.115,22.405,114.441" },
+                    { name: "Sha Tin (沙田區)", st: "Hong Kong", lat: 22.395, lng: 114.200, r: 7.0, zoom: 13, bbox: "22.435,114.155,22.355,114.245" },
+                    { name: "Sai Kung (西貢區)", st: "Hong Kong", lat: 22.370, lng: 114.320, r: 16.0, zoom: 11, bbox: "22.475,114.225,22.265,114.415" },
+                    { name: "Islands (離島區)", st: "Hong Kong", lat: 22.254, lng: 113.990, r: 22.0, zoom: 11, bbox: "22.355,113.835,22.153,114.145" }
+                ]
+            },
+            "China": {
+                oid: 43,
+                regions: [
+                    { name: "Shenzhen (深圳)", st: "Guangdong", lat: 22.652, lng: 114.191, r: 45.0, zoom: 10, bbox: "22.862,113.754,22.443,114.628" },
+                    { name: "Guangzhou (廣州)", st: "Guangdong", lat: 23.246, lng: 113.508, r: 65.0, zoom: 9, bbox: "23.935,112.958,22.558,114.058" },
+                    { name: "Zhuhai (珠海)", st: "Guangdong", lat: 22.130, lng: 113.705, r: 55.0, zoom: 10, bbox: "22.455,113.085,21.805,114.325" },
+                    { name: "Foshan (佛山)", st: "Guangdong", lat: 23.113, lng: 112.883, r: 55.0, zoom: 10, bbox: "23.582,112.382,22.645,113.385" }
+                ]
+            },
+            "Taiwan": {
+                oid: 196,
+                regions: [
+                    { name: "All Taiwan (全台灣)", st: "Taiwan", lat: 23.975, lng: 120.973, r: 220.0, zoom: 7, bbox: null },
+                    { name: "Keelung City (基隆市)", st: "Keelung", lat: 25.135, lng: 121.740, r: 12.0, zoom: 12, bbox: "25.195,121.665,25.075,121.815" },
+                    { name: "Taipei City (台北市)", st: "Taipei City", lat: 25.085, lng: 121.561, r: 18.0, zoom: 11, bbox: "25.210,121.457,24.960,121.666" },
+                    { name: "New Taipei City (新北市)", st: "New Taipei", lat: 24.986, lng: 121.645, r: 45.0, zoom: 10, bbox: "25.300,121.282,24.673,122.008" },
+                    { name: "Taoyuan City (桃園市)", st: "Taoyuan", lat: 24.855, lng: 121.232, r: 35.0, zoom: 10, bbox: "25.125,120.985,24.585,121.480" },
+                    { name: "Hsinchu City (新竹市)", st: "Hsinchu City", lat: 24.791, lng: 120.965, r: 12.0, zoom: 12, bbox: "24.858,120.895,24.725,121.035" },
+                    { name: "Hsinchu County (新竹縣)", st: "Hsinchu County", lat: 24.687, lng: 121.167, r: 35.0, zoom: 10, bbox: "24.950,120.950,24.425,121.385" },
+                    { name: "Miaoli County (苗栗縣)", st: "Miaoli", lat: 24.515, lng: 120.940, r: 38.0, zoom: 10, bbox: "24.745,120.615,24.285,121.265" },
+                    { name: "Taichung City (台中市)", st: "Taichung", lat: 24.220, lng: 120.958, r: 55.0, zoom: 10, bbox: "24.442,120.465,23.998,121.452" },
+                    { name: "Changhua County (彰化縣)", st: "Changhua", lat: 23.995, lng: 120.470, r: 30.0, zoom: 10, bbox: "24.205,120.255,23.785,120.685" },
+                    { name: "Nantou County (南投縣)", st: "Nantou", lat: 23.840, lng: 120.985, r: 52.0, zoom: 10, bbox: "24.245,120.615,23.435,121.355" },
+                    { name: "Yunlin County (雲林縣)", st: "Yunlin", lat: 23.675, lng: 120.425, r: 36.0, zoom: 10, bbox: "23.845,120.115,23.505,120.735" },
+                    { name: "Chiayi City (嘉義市)", st: "Chiayi City", lat: 23.480, lng: 120.450, r: 8.0, zoom: 13, bbox: "23.515,120.405,23.445,120.495" },
+                    { name: "Chiayi County (嘉義縣)", st: "Chiayi County", lat: 23.425, lng: 120.535, r: 48.0, zoom: 10, bbox: "23.635,120.115,23.215,120.955" },
+                    { name: "Tainan City (台南市)", st: "Tainan", lat: 23.150, lng: 120.340, r: 42.0, zoom: 10, bbox: "23.415,120.025,22.885,120.655" },
+                    { name: "Kaohsiung City (高雄市)", st: "Kaohsiung", lat: 22.975, lng: 120.602, r: 65.0, zoom: 9, bbox: "23.475,120.155,22.475,121.050" },
+                    { name: "Pingtung County (屏東縣)", st: "Pingtung", lat: 22.385, lng: 120.630, r: 60.0, zoom: 9, bbox: "22.885,120.355,21.885,120.905" },
+                    { name: "Yilan County (宜蘭縣)", st: "Yilan", lat: 24.650, lng: 121.665, r: 48.0, zoom: 10, bbox: "24.995,121.315,24.305,122.015" },
+                    { name: "Hualien County (花蓮縣)", st: "Hualien", lat: 23.732, lng: 121.320, r: 78.0, zoom: 9, bbox: "24.370,120.985,23.095,121.655" },
+                    { name: "Taitung County (台東縣)", st: "Taitung", lat: 22.725, lng: 121.180, r: 85.0, zoom: 9, bbox: "23.445,120.745,22.005,121.615" },
+                    { name: "Penghu County (澎湖縣)", st: "Penghu", lat: 23.500, lng: 119.517, r: 42.0, zoom: 10, bbox: "23.815,119.310,23.185,119.725" },
+                    { name: "Kinmen County (金門縣)", st: "Kinmen", lat: 24.455, lng: 118.352, r: 18.0, zoom: 11, bbox: "24.535,118.210,24.375,118.495" },
+                    { name: "Lienchiang County / Matsu (連江縣)", st: "Lienchiang", lat: 26.167, lng: 120.210, r: 38.0, zoom: 10, bbox: "26.395,119.905,25.940,120.515" }
+                ]
+            },
+            "Japan": {
+                oid: 104,
+                regions: [
+                    { name: "01. Hokkaido (北海道)", st: "Hokkaido", lat: 43.454, lng: 142.575, r: 280.0, zoom: 7, bbox: "45.557,139.334,41.352,145.817" },
+                    { name: "02. Aomori (青森県)", st: "Aomori", lat: 40.887, lng: 140.590, r: 95.0, zoom: 8, bbox: "41.556,139.496,40.218,141.685" },
+                    { name: "03. Iwate (岩手県)", st: "Iwate", lat: 39.598, lng: 141.362, r: 105.0, zoom: 8, bbox: "40.450,140.653,38.747,142.072" },
+                    { name: "04. Miyagi (宮城県)", st: "Miyagi", lat: 38.388, lng: 140.975, r: 78.0, zoom: 9, bbox: "39.003,140.275,37.774,141.676" },
+                    { name: "05. Akita (秋田県)", st: "Akita", lat: 39.692, lng: 140.342, r: 98.0, zoom: 8, bbox: "40.511,139.690,38.873,140.995" },
+                    { name: "06. Yamagata (山形県)", st: "Yamagata", lat: 38.473, lng: 140.083, r: 88.0, zoom: 8, bbox: "39.213,139.520,37.734,140.646" },
+                    { name: "07. Fukushima (福島県)", st: "Fukushima", lat: 37.384, lng: 140.106, r: 95.0, zoom: 8, bbox: "37.977,139.164,36.791,141.048" },
+                    { name: "08. Ibaraki (茨城県)", st: "Ibaraki", lat: 36.342, lng: 140.269, r: 75.0, zoom: 9, bbox: "36.945,139.687,35.739,140.851" },
+                    { name: "09. Tochigi (栃木県)", st: "Tochigi", lat: 36.677, lng: 139.809, r: 62.0, zoom: 9, bbox: "37.155,139.326,36.199,140.292" },
+                    { name: "10. Gunma (群馬県)", st: "Gunma", lat: 36.521, lng: 139.032, r: 68.0, zoom: 9, bbox: "37.059,138.397,35.984,139.667" },
+                    { name: "11. Saitama (埼玉県)", st: "Saitama", lat: 36.018, lng: 139.306, r: 58.0, zoom: 9, bbox: "36.283,138.711,35.754,139.901" },
+                    { name: "12. Chiba (千葉県)", st: "Chiba", lat: 35.501, lng: 140.311, r: 75.0, zoom: 9, bbox: "36.105,139.739,34.898,140.883" },
+                    { name: "13. Tokyo (東京都)", st: "Tokyo", lat: 35.699, lng: 139.431, r: 48.0, zoom: 10, bbox: "35.898,138.943,35.500,139.919" },
+                    { name: "14. Kanagawa (神奈川県)", st: "Kanagawa", lat: 35.400, lng: 139.356, r: 45.0, zoom: 10, bbox: "35.673,138.916,35.128,139.796" },
+                    { name: "15. Niigata (新潟県)", st: "Niigata", lat: 37.645, lng: 138.766, r: 125.0, zoom: 8, bbox: "38.554,137.633,36.737,139.899" },
+                    { name: "16. Toyama (富山県)", st: "Toyama", lat: 36.628, lng: 137.266, r: 52.0, zoom: 9, bbox: "36.982,136.768,36.275,137.765" },
+                    { name: "17. Ishikawa (石川県)", st: "Ishikawa", lat: 36.961, lng: 136.802, r: 105.0, zoom: 8, bbox: "37.855,136.243,36.067,137.361" },
+                    { name: "18. Fukui (福井県)", st: "Fukui", lat: 35.821, lng: 136.140, r: 72.0, zoom: 9, bbox: "36.298,135.448,35.344,136.833" },
+                    { name: "19. Yamanashi (山梨県)", st: "Yamanashi", lat: 35.570, lng: 138.657, r: 55.0, zoom: 9, bbox: "35.972,138.180,35.168,139.135" },
+                    { name: "20. Nagano (長野県)", st: "Nagano", lat: 36.113, lng: 138.035, r: 112.0, zoom: 8, bbox: "37.030,137.326,35.197,138.745" },
+                    { name: "21. Gifu (岐阜県)", st: "Gifu", lat: 35.799, lng: 136.964, r: 85.0, zoom: 8, bbox: "36.465,136.275,35.134,137.653" },
+                    { name: "22. Shizuoka (静岡県)", st: "Shizuoka", lat: 35.109, lng: 138.325, r: 88.0, zoom: 8, bbox: "35.646,137.474,34.573,139.176" },
+                    { name: "23. Aichi (愛知県)", st: "Aichi", lat: 35.001, lng: 137.254, r: 62.0, zoom: 9, bbox: "35.425,136.671,34.578,137.838" },
+                    { name: "24. Mie (三重県)", st: "Mie", lat: 34.490, lng: 136.420, r: 92.0, zoom: 8, bbox: "35.258,135.853,33.722,136.988" },
+                    { name: "25. Shiga (滋賀県)", st: "Shiga", lat: 35.247, lng: 136.109, r: 58.0, zoom: 9, bbox: "35.704,135.764,34.790,136.455" },
+                    { name: "26. Kyoto (京都府)", st: "Kyoto", lat: 35.242, lng: 135.454, r: 72.0, zoom: 9, bbox: "35.779,134.853,34.706,136.056" },
+                    { name: "27. Osaka (大阪府)", st: "Osaka", lat: 34.656, lng: 135.419, r: 48.0, zoom: 10, bbox: "35.051,135.091,34.262,135.748" },
+                    { name: "28. Hyogo (兵庫県)", st: "Hyogo", lat: 34.915, lng: 134.860, r: 92.0, zoom: 8, bbox: "35.675,134.252,34.156,135.469" },
+                    { name: "29. Nara (奈良県)", st: "Nara", lat: 34.316, lng: 135.885, r: 58.0, zoom: 9, bbox: "34.777,135.545,33.856,136.226" },
+                    { name: "30. Wakayama (和歌山県)", st: "Wakayama", lat: 33.908, lng: 135.506, r: 65.0, zoom: 9, bbox: "34.384,135.004,33.432,136.008" },
+                    { name: "31. Tottori (鳥取県)", st: "Tottori", lat: 35.337, lng: 133.824, r: 68.0, zoom: 9, bbox: "35.616,133.136,35.059,134.513" },
+                    { name: "32. Shimane (島根県)", st: "Shimane", lat: 35.329, lng: 132.527, r: 125.0, zoom: 8, bbox: "36.357,131.668,34.302,133.386" },
+                    { name: "33. Okayama (岡山県)", st: "Okayama", lat: 34.824, lng: 133.840, r: 68.0, zoom: 9, bbox: "35.352,133.267,34.296,134.413" },
+                    { name: "34. Hiroshima (広島県)", st: "Hiroshima", lat: 34.570, lng: 132.753, r: 78.0, zoom: 9, bbox: "35.106,132.036,34.034,133.471" },
+                    { name: "35. Yamaguchi (山口県)", st: "Yamaguchi", lat: 34.251, lng: 131.634, r: 88.0, zoom: 8, bbox: "34.792,130.774,33.711,132.495" },
+                    { name: "36. Tokushima (徳島県)", st: "Tokushima", lat: 33.896, lng: 134.238, r: 62.0, zoom: 9, bbox: "34.253,133.653,33.539,134.823" },
+                    { name: "37. Kagawa (香川県)", st: "Kagawa", lat: 34.288, lng: 133.946, r: 52.0, zoom: 9, bbox: "34.565,133.446,34.012,134.446" },
+                    { name: "38. Ehime (愛媛県)", st: "Ehime", lat: 33.600, lng: 132.852, r: 95.0, zoom: 8, bbox: "34.302,132.012,32.898,133.693" },
+                    { name: "39. Kochi (高知県)", st: "Kochi", lat: 33.292, lng: 133.396, r: 95.0, zoom: 8, bbox: "33.883,132.479,32.702,134.314" },
+                    { name: "40. Fukuoka (福岡県)", st: "Fukuoka", lat: 33.510, lng: 130.612, r: 68.0, zoom: 9, bbox: "34.020,130.033,33.001,131.192" },
+                    { name: "41. Saga (佐賀県)", st: "Saga", lat: 33.283, lng: 130.140, r: 48.0, zoom: 10, bbox: "33.619,129.738,32.948,130.543" },
+                    { name: "42. Nagasaki (長崎県)", st: "Nagasaki", lat: 33.635, lng: 129.493, r: 135.0, zoom: 8, bbox: "34.723,128.595,32.548,130.391" },
+                    { name: "43. Kumamoto (熊本県)", st: "Kumamoto", lat: 32.641, lng: 130.635, r: 78.0, zoom: 9, bbox: "33.195,129.939,32.088,131.332" },
+                    { name: "44. Oita (大分県)", st: "Oita", lat: 33.227, lng: 131.455, r: 72.0, zoom: 9, bbox: "33.740,130.825,32.715,132.085" },
+                    { name: "45. Miyazaki (宮崎県)", st: "Miyazaki", lat: 32.099, lng: 131.295, r: 92.0, zoom: 8, bbox: "32.839,130.704,31.360,131.886" },
+                    { name: "46. Kagoshima (鹿児島県)", st: "Kagoshima", lat: 29.665, lng: 129.802, r: 300.0, zoom: 6, bbox: "32.312,128.400,27.018,131.205" },
+                    { name: "47. Okinawa (沖縄県)", st: "Okinawa", lat: 25.965, lng: 127.132, r: 420.0, zoom: 6, bbox: "27.885,122.933,24.045,131.332" }
+                ]
+            }
+        };
+
+        const state = {
+            caches: [],
+            isExecuting: false,
+            sortCol: null,
+            sortAsc: true,
+            copiedCells: new Set(),
+            username: 'gordon942'
+        };
 
         const TYPE_ID_MAP = {
             2: 'Traditional', 3: 'Multi-cache', 4: 'Virtual', 5: 'Letterbox',
             6: 'Event', 8: 'Mystery', 11: 'Webcam', 13: 'Locationless',
             137: 'Earthcache', 453: 'Mega-Event', 1858: 'Wherigo'
         };
+
+        function handleCountryChange() {
+            const country = document.getElementById('countrySelect').value;
+            const limitInput = document.getElementById('cacheLimitInput');
+
+            if (country === 'Taiwan' || country === 'Japan') {
+                limitInput.value = '1000';
+            } else {
+                limitInput.value = 'all';
+            }
+
+            updateRegionDropdown();
+        }
+
+        function updateRegionDropdown() {
+            const country = document.getElementById('countrySelect').value;
+            const regionSelect = document.getElementById('regionSelect');
+            const regions = COUNTRY_CONFIG[country]?.regions || [];
+
+            regionSelect.innerHTML = regions.map((r, idx) => 
+                `<option value="${idx}">${escapeHtml(r.name)}</option>`
+            ).join('');
+        }
+
+        document.addEventListener('DOMContentLoaded', handleCountryChange);
 
         function extractValue(val, fallback = 'N/A') {
             if (!val && val !== 0) return fallback;
@@ -263,33 +447,79 @@
         function getCacheTypeBadge(typeStr) {
             const raw = String(typeStr || '').toLowerCase();
             let label = typeStr || 'Traditional';
-            let colorClass = 'bg-slate-800 text-slate-300 border-slate-700';
-            let icon = 'fa-box';
 
-            if (raw.includes('traditional')) { colorClass = 'bg-emerald-950/80 text-emerald-400 border-emerald-800'; icon = 'fa-box-archive'; }
-            else if (raw.includes('mystery') || raw.includes('unknown')) { colorClass = 'bg-indigo-950/80 text-indigo-400 border-indigo-800'; icon = 'fa-question'; }
-            else if (raw.includes('multi')) { colorClass = 'bg-amber-950/80 text-amber-400 border-amber-800'; icon = 'fa-layer-group'; }
-            else if (raw.includes('earth')) { colorClass = 'bg-teal-950/80 text-teal-400 border-teal-800'; icon = 'fa-globe'; }
-            else if (raw.includes('event')) { colorClass = 'bg-purple-950/80 text-purple-400 border-purple-800'; icon = 'fa-calendar-day'; }
-            else if (raw.includes('letterbox')) { colorClass = 'bg-rose-950/80 text-rose-400 border-rose-800'; icon = 'fa-envelope-open-text'; }
+            if (raw.includes('traditional')) {
+                return `<span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-[#02874d] text-white shadow-sm border border-[#03a65f]" title="${escapeHtml(label)}">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M4 7l8-4 8 4v10l-8 4-8-4V7zm8-2.2L6.2 7.5 12 10.2l5.8-2.7L12 4.8zm-6 4.4v6.6l5 2.5v-6.6l-5-2.5zm12 0l-5 2.5v6.6l5-2.5V9.2z"/></svg>
+                </span>`;
+            }
+            if (raw.includes('mystery') || raw.includes('unknown')) {
+                return `<span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-[#12508f] text-white shadow-sm border border-[#1d6ec2]" title="${escapeHtml(label)}">
+                    <span class="font-sans font-extrabold text-xs leading-none">?</span>
+                </span>`;
+            }
+            if (raw.includes('multi')) {
+                return `<span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-[#e68a00] text-white shadow-sm border border-[#ffaa2b]" title="${escapeHtml(label)}">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h11v9H3V6zm13 3h5v9H10v-2h6V9z"/></svg>
+                </span>`;
+            }
+            if (raw.includes('earth')) {
+                return `<span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-[#146c94] text-[#6ee7b7] shadow-sm border border-[#2295c9]" title="${escapeHtml(label)}">
+                    <i class="fa-solid fa-earth-americas text-xs"></i>
+                </span>`;
+            }
+            if (raw.includes('event')) {
+                return `<span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-[#c92a2a] text-white shadow-sm border border-[#e03131]" title="${escapeHtml(label)}">
+                    <i class="fa-solid fa-comment-dots text-[11px]"></i>
+                </span>`;
+            }
+            if (raw.includes('letterbox')) {
+                return `<span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-[#1864ab] text-white shadow-sm border border-[#228be6]" title="${escapeHtml(label)}">
+                    <i class="fa-solid fa-envelope text-[11px]"></i>
+                </span>`;
+            }
+            if (raw.includes('virtual')) {
+                return `<span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-[#d97706] text-white shadow-sm border border-[#f59e0b]" title="${escapeHtml(label)}">
+                    <i class="fa-solid fa-ghost text-[11px]"></i>
+                </span>`;
+            }
+            if (raw.includes('wherigo')) {
+                return `<span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-[#0b7285] text-white shadow-sm border border-[#15aabf]" title="${escapeHtml(label)}">
+                    <i class="fa-solid fa-compass text-xs"></i>
+                </span>`;
+            }
 
-            return `<span class="inline-flex items-center justify-center h-6 w-6 rounded border ${colorClass}" title="${escapeHtml(label)}"><i class="fa-solid ${icon} text-[11px]"></i></span>`;
+            return `<span class="inline-flex items-center justify-center h-6 w-6 rounded-full bg-slate-700 text-slate-200 border border-slate-600" title="${escapeHtml(label)}">
+                <i class="fa-solid fa-box text-[11px]"></i>
+            </span>`;
         }
 
-        // Unified copy handler with secure API + execCommand fallback
-        function copyTextToClipboard(text, label = 'Content') {
+        function toggleCopyCell(cellEl) {
+            const text = cellEl.getAttribute('data-copy');
+            const cellKey = cellEl.getAttribute('data-key');
+            const label = cellEl.getAttribute('data-label');
+            const highlightClass = cellEl.getAttribute('data-highlight');
+
             if (!text || text === '-') return;
 
             if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(text).then(() => {
-                    showToast(`Copied ${label}`);
-                }).catch(() => fallbackCopy(text, label));
+                navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
             } else {
-                fallbackCopy(text, label);
+                fallbackCopy(text);
+            }
+
+            if (state.copiedCells.has(cellKey)) {
+                state.copiedCells.delete(cellKey);
+                cellEl.classList.remove(...highlightClass.split(' '));
+                showToast(`Unmarked ${label}`);
+            } else {
+                state.copiedCells.add(cellKey);
+                cellEl.classList.add(...highlightClass.split(' '));
+                showToast(`Copied ${label}`);
             }
         }
 
-        function fallbackCopy(text, label) {
+        function fallbackCopy(text) {
             const textArea = document.createElement("textarea");
             textArea.value = text;
             textArea.style.position = "fixed";
@@ -299,7 +529,6 @@
             textArea.select();
             try {
                 document.execCommand('copy');
-                showToast(`Copied ${label}`);
             } catch (err) {
                 console.error('Fallback copy failed', err);
             }
@@ -314,7 +543,7 @@
             setTimeout(() => {
                 toast.classList.remove('opacity-100', 'translate-y-0');
                 toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-2');
-            }, 2200);
+            }, 2000);
         }
 
         function log(msg, type = 'info') {
@@ -342,50 +571,231 @@
                             status === 'ERROR' ? "inline-block h-2 w-2 rounded-full bg-rose-500 mr-1.5" : "inline-block h-2 w-2 rounded-full bg-slate-500 mr-1.5";
         }
 
+        function parseLimitInput(rawStr) {
+            const cleaned = String(rawStr || '').trim().toLowerCase();
+            if (!cleaned || cleaned === 'all' || cleaned === '-1') return -1;
+            const num = parseInt(cleaned, 10);
+            if (isNaN(num) || num <= 0) return -1;
+            return num;
+        }
+
+        function buildQueryParamSets(countryCfg, regionObj, foundFilter, username) {
+            const makeBase = () => {
+                const p = new URLSearchParams();
+                p.set('sort', 'distance');
+                p.set('asc', 'true');
+                if (regionObj.st) p.set('st', regionObj.st);
+                p.set('lat', String(regionObj.lat));
+                p.set('lng', String(regionObj.lng));
+                p.set('ot', 'country');
+                p.set('oid', String(countryCfg.oid));
+                p.set('r', String(regionObj.r));
+                p.set('zoom', String(regionObj.zoom));
+                if (regionObj.bbox) p.set('box', regionObj.bbox);
+                return p;
+            };
+
+            switch (foundFilter) {
+                case 'NOT_FOUND': {
+                    const p = makeBase();
+                    p.set('hf', '1');
+                    p.set('nfb', username || 'gordon942');
+                    return [p];
+                }
+                case 'FOUND': {
+                    const pFound = makeBase();
+                    pFound.set('hf', '1');
+                    const pOwned = makeBase();
+                    pOwned.set('ho', '1');
+                    return [pFound, pOwned];
+                }
+                case 'FOUND_EXCLUDE_OWNED': {
+                    const p = makeBase();
+                    p.set('hf', '1');
+                    return [p];
+                }
+                case 'SOLVED': {
+                    const p = makeBase();
+                    p.set('hc', '1');
+                    return [p];
+                }
+                case 'OWNED': {
+                    const p = makeBase();
+                    p.set('ho', '1');
+                    return [p];
+                }
+                case 'ALL':
+                default: {
+                    return [makeBase()];
+                }
+            }
+        }
+
+        function checkItemIsOwner(item) {
+            const ownerName = extractValue(item.owner || item.ownerName || item.placedBy, '');
+            const activeUser = (state.username || 'gordon942').toLowerCase();
+            return Boolean(item.isOwner || item.userState?.isOwner) || ownerName.toLowerCase() === activeUser;
+        }
+
+        function checkItemIsFound(item) {
+            return Boolean(
+                item.userState?.hasFound === true ||
+                item.userState?.isFound === true ||
+                item.userState?.found === true ||
+                Boolean(item.userState?.foundDate) ||
+                item.hasFound === true ||
+                item.isFound === true ||
+                item.found === true ||
+                (typeof item.userState?.logType === 'number' && item.userState.logType === 2)
+            );
+        }
+
+        function checkItemIsSolved(item) {
+            const corr = item.userCorrectedCoordinates;
+            return Boolean(corr && typeof corr.latitude === 'number' && typeof corr.longitude === 'number');
+        }
+
+        function matchesStatusFilter(filterMode, isFound, isOwner, isSolved) {
+            switch (filterMode) {
+                case 'FOUND':
+                    return isFound || isOwner;
+                case 'FOUND_EXCLUDE_OWNED':
+                    return isFound && !isOwner;
+                case 'NOT_FOUND':
+                    return !isFound && !isOwner;
+                case 'SOLVED':
+                    return isSolved;
+                case 'OWNED':
+                    return isOwner;
+                case 'ALL':
+                default:
+                    return true;
+            }
+        }
+
         async function startExtraction() {
             if (state.isExecuting) return;
             const cookie = document.getElementById('cookieInput').value.trim();
-            const bbox = document.getElementById('bboxInput').value.trim();
-            const limitVal = parseInt(document.getElementById('cacheLimitInput').value.trim()) || 20;
+            const country = document.getElementById('countrySelect').value;
+            const countryCfg = COUNTRY_CONFIG[country];
+            const regionIdx = parseInt(document.getElementById('regionSelect').value, 10) || 0;
+            const regionObj = countryCfg.regions[regionIdx];
+            const foundFilter = document.getElementById('foundFilterConfig').value;
+            const limitVal = parseLimitInput(document.getElementById('cacheLimitInput').value);
+            const shouldEnrich = document.getElementById('enrichToggle').checked;
 
-            if (!cookie) { alert('Please input cookie.'); return; }
+            if (!cookie) { alert('Please input your Geocaching cookie string.'); return; }
 
             state.isExecuting = true;
+            state.copiedCells.clear();
             setStatus('RUNNING');
             document.getElementById('submitBtn').disabled = true;
-            document.getElementById('batchSizeBadge').textContent = `Batch Size: First ${limitVal} Caches`;
+
+            const filterLabelMap = {
+                ALL: 'All Caches',
+                FOUND: 'Found (Include Owned)',
+                FOUND_EXCLUDE_OWNED: 'Found (Exclude Owned)',
+                NOT_FOUND: 'Not Found Only',
+                SOLVED: 'Only Solved Caches',
+                OWNED: 'Owned Caches Only'
+            };
+            const limitLabel = limitVal === -1 ? 'All' : `First ${limitVal}`;
+            document.getElementById('batchSizeBadge').textContent = `Filter: ${filterLabelMap[foundFilter]} | Limit: ${limitLabel} (${country} - ${regionObj.name})`;
 
             try {
-                log('Step 1: Fetching map page...', 'info');
+                log(`Target: ${country} (oid=${countryCfg.oid}) -> ${regionObj.name} | Filter: ${filterLabelMap[foundFilter]} | Limit: ${limitLabel}`, 'info');
+                log('Step 1: Fetching map page for Next.js buildId & username...', 'info');
                 const mapRes = await fetch('/api/proxy', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ endpoint: '/play/map', cookie })
                 });
                 const mapData = await mapRes.json();
-                const html = mapData.html || '';
+                if (!mapRes.ok) throw new Error(mapData.error || 'Failed to load /play/map');
 
+                const html = mapData.html || '';
                 const buildIdMatch = html.match(/"buildId"\s*:\s*"([^"]+)"/) || html.match(/\/_next\/static\/([^/]+)\/_buildManifest/);
-                if (!buildIdMatch) throw new Error('Failed to parse buildId. Check cookie.');
+                if (!buildIdMatch) throw new Error('Failed to parse buildId. Check cookie validity.');
                 const buildId = buildIdMatch[1];
 
-                log(`Step 2: Fetching bbox data for ${bbox}...`, 'info');
-                const jsonEndpoint = `/_next/data/${buildId}/en/play/map.json?box=${encodeURIComponent(bbox)}`;
-                const jsonRes = await fetch('/api/proxy', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ endpoint: jsonEndpoint, cookie })
+                const userMatch = html.match(/"username"\s*:\s*"([^"]+)"/) || html.match(/data-username="([^"]+)"/);
+                if (userMatch && userMatch[1]) {
+                    state.username = userMatch[1];
+                }
+
+                const paramSets = buildQueryParamSets(countryCfg, regionObj, foundFilter, state.username);
+                const seenCodes = new Set();
+                let searchResults = [];
+
+                for (const params of paramSets) {
+                    let skip = 0;
+                    const take = 500;
+                    let keepPaging = true;
+
+                    while (keepPaging) {
+                        const pageParams = new URLSearchParams(params.toString());
+                        pageParams.set('take', String(take));
+                        if (skip > 0) pageParams.set('skip', String(skip));
+
+                        const qs = pageParams.toString();
+                        const jsonEndpoint = `/_next/data/${buildId}/en/play/map.json?${qs}`;
+                        log(`Step 2: Requesting -> ?${qs}`, 'info');
+
+                        const jsonRes = await fetch('/api/proxy', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ endpoint: jsonEndpoint, cookie })
+                        });
+
+                        const jsonData = await jsonRes.json();
+                        const searchObj = jsonData?.pageProps?.searchResults || {};
+                        const batch = searchObj.results || jsonData?.pageProps?.mapData?.geocaches || [];
+                        const totalAvailable = searchObj.total || batch.length;
+
+                        for (const item of batch) {
+                            const code = item.code || item.gcCode;
+                            if (code && !seenCodes.has(code)) {
+                                seenCodes.add(code);
+                                searchResults.push(item);
+                            }
+                        }
+
+                        const currentFilteredCount = searchResults.filter(item =>
+                            matchesStatusFilter(
+                                foundFilter,
+                                checkItemIsFound(item),
+                                checkItemIsOwner(item),
+                                checkItemIsSolved(item)
+                            )
+                        ).length;
+
+                        const reachedLimit = (limitVal !== -1 && currentFilteredCount >= limitVal);
+                        if (reachedLimit || batch.length === 0 || skip + batch.length >= totalAvailable || batch.length < 50) {
+                            keepPaging = false;
+                        } else {
+                            skip += batch.length;
+                        }
+                    }
+                }
+
+                searchResults = searchResults.filter(item => {
+                    const isOwner = checkItemIsOwner(item);
+                    const isFound = checkItemIsFound(item);
+                    const isSolved = checkItemIsSolved(item);
+                    return matchesStatusFilter(foundFilter, isFound, isOwner, isSolved);
                 });
 
-                const jsonData = await jsonRes.json();
-                let searchResults = jsonData?.pageProps?.searchResults?.results || jsonData?.pageProps?.mapData?.geocaches || [];
-                
-                if (searchResults.length > limitVal) searchResults = searchResults.slice(0, limitVal);
+                const matchedCount = searchResults.length;
+                if (limitVal !== -1 && searchResults.length > limitVal) {
+                    searchResults = searchResults.slice(0, limitVal);
+                }
+
+                log(`Received ${matchedCount} matching caches -> taking ${searchResults.length}.`, 'success');
 
                 state.caches = searchResults.map(item => {
                     const ownerName = extractValue(item.owner || item.ownerName || item.placedBy, '-');
-                    const isOwner = Boolean(item.isOwner) || ownerName.toLowerCase() === 'gordon942';
-                    const hasFound = Boolean(item.userState?.hasFound || item.hasFound);
+                    const isOwner = checkItemIsOwner(item);
+                    const hasFound = checkItemIsFound(item);
                     const coordsData = extractCoordsFromProxyItem(item);
 
                     let statusLabel = 'Unfound';
@@ -424,39 +834,58 @@
                 renderCachesTable();
 
                 const gcCodes = state.caches.map(c => c.code);
-                log(`Step 3: Enriching ${gcCodes.length} caches (Notes & Logs)...`, 'info');
-                const enrichRes = await fetch('/api/enrich', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ gc_codes: gcCodes, cookie, limit: limitVal })
-                });
-
-                if (enrichRes.ok) {
-                    const enrichedData = await enrichRes.json();
-                    state.caches.forEach(cache => {
-                        const details = enrichedData[cache.code];
-                        if (details) {
-                            if (details.ownerName) cache.owner = details.ownerName;
-                            cache.personalNote = details.personalNote || '';
-                            cache.logDate = details.foundDate || '';
-
-                            if (details.isOwner || (cache.owner && cache.owner.toLowerCase() === 'gordon942')) {
-                                cache.isOwner = true;
-                                cache.status = 'Owner';
-                                cache.statusBadgeClass = 'bg-amber-950/80 text-amber-400 border-amber-800';
-                                cache.statusIcon = 'fa-user-gear';
-                            } else if (details.hasFound) {
-                                cache.hasFound = true;
-                                cache.status = 'Found';
-                                cache.statusBadgeClass = 'bg-emerald-950/80 text-emerald-400 border-emerald-800';
-                                cache.statusIcon = 'fa-check-circle';
-                            }
-                        }
+                if (shouldEnrich && gcCodes.length > 0) {
+                    log(`Step 3: Enriching ${gcCodes.length} caches (15 parallel workers)...`, 'info');
+                    const enrichRes = await fetch('/api/enrich', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ gc_codes: gcCodes, cookie, limit: limitVal })
                     });
+
+                    if (enrichRes.ok) {
+                        const enrichedData = await enrichRes.json();
+                        const activeUser = (state.username || 'gordon942').toLowerCase();
+
+                        state.caches.forEach(cache => {
+                            const details = enrichedData[cache.code];
+                            if (details) {
+                                if (details.ownerName) cache.owner = details.ownerName;
+                                cache.personalNote = details.personalNote || '';
+                                cache.logDate = details.foundDate || '';
+
+                                if (details.isOwner || (cache.owner && cache.owner.toLowerCase() === activeUser)) {
+                                    cache.isOwner = true;
+                                    cache.hasFound = false;
+                                    cache.status = 'Owner';
+                                    cache.statusBadgeClass = 'bg-amber-950/80 text-amber-400 border-amber-800';
+                                    cache.statusIcon = 'fa-user-gear';
+                                } else if (details.hasFound) {
+                                    cache.hasFound = true;
+                                    cache.status = 'Found';
+                                    cache.statusBadgeClass = 'bg-emerald-950/80 text-emerald-400 border-emerald-800';
+                                    cache.statusIcon = 'fa-check-circle';
+                                } else {
+                                    cache.hasFound = false;
+                                    cache.status = 'Unfound';
+                                    cache.statusBadgeClass = 'bg-slate-900 text-slate-500 border-slate-800';
+                                    cache.statusIcon = 'fa-circle';
+                                }
+                            }
+                        });
+
+                        state.caches = state.caches.filter(c =>
+                            matchesStatusFilter(foundFilter, c.hasFound, c.isOwner, c.isCorrected)
+                        );
+                    }
+                } else if (!shouldEnrich && gcCodes.length > 0) {
+                    log('Step 3: Skipped deep HTML enrichment (fast mode enabled).', 'info');
                 }
 
                 renderCachesTable();
+                log('Extraction complete! Switching to Geocaches List...', 'success');
                 setStatus('SUCCESS');
+
+                switchTab('cachesTab', document.getElementById('btnCachesTab'));
             } catch (err) {
                 log(`Error: ${err.message}`, 'error');
                 setStatus('ERROR');
@@ -469,57 +898,69 @@
         function renderCachesTable() {
             const tbody = document.getElementById('cachesTableBody');
             document.getElementById('statCaches').textContent = state.caches.length;
-            document.getElementById('statSolved').textContent = state.caches.filter(c => c.status === 'Found' || c.status === 'Owner' || c.personalNote).length;
+            document.getElementById('statSolved').textContent = state.caches.filter(c => c.status === 'Found' || c.status === 'Owner' || c.isCorrected || c.personalNote).length;
 
             if (state.caches.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="10" class="text-center py-12 text-slate-600 font-sans">No geocaches found.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="10" class="text-center py-12 text-slate-600 font-sans">No geocaches found matching criteria.</td></tr>`;
                 return;
             }
 
             const fragment = document.createDocumentFragment();
             state.caches.forEach(cache => {
                 const tr = document.createElement('tr');
-                tr.className = 'hover:bg-slate-900/60 transition border-b border-slate-800/30';
+                tr.className = 'hover:bg-slate-900/50 transition border-b border-slate-800/60';
                 tr.setAttribute('data-type', cache.type);
 
-                const safeNote = escapeHtml(cache.personalNote).replace(/'/g, "\\'");
-                const safeCoords = escapeHtml(cache.ddmCoords).replace(/'/g, "\\'");
+                const coordKey = `${cache.code}-coord`;
+                const noteKey = `${cache.code}-note`;
+                const isCoordCopied = state.copiedCells.has(coordKey);
+                const isNoteCopied = state.copiedCells.has(noteKey);
 
                 tr.innerHTML = `
-                    <td class="py-2.5 px-3"><a href="https://www.geocaching.com/geocache/${cache.code}" target="_blank" class="font-bold text-indigo-400 hover:underline">${escapeHtml(cache.code)}</a></td>
-                    <td class="py-2.5 px-3 text-slate-300 font-sans">${escapeHtml(cache.owner)}</td>
-                    <td class="py-2.5 px-3">
+                    <td class="py-2.5 px-3 border-r border-slate-800/70 align-top">
+                        <a href="https://www.geocaching.com/geocache/${cache.code}" target="_blank" class="font-bold text-indigo-400 hover:underline">${escapeHtml(cache.code)}</a>
+                    </td>
+                    <td class="py-2.5 px-3 border-r border-slate-800/70 text-slate-300 font-sans align-top">${escapeHtml(cache.owner)}</td>
+                    <td class="py-2.5 px-3 border-r border-slate-800/70 align-top">
                         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border ${cache.statusBadgeClass}">
                             <i class="fa-solid ${cache.statusIcon} text-[9px]"></i> ${cache.status}
                         </span>
                     </td>
-                    <td class="py-2.5 px-3 text-slate-400 font-mono text-[11px]">${cache.logDate ? escapeHtml(cache.logDate) : '<span class="text-slate-600">-</span>'}</td>
-                    <td class="py-2.5 px-2 text-center">${getCacheTypeBadge(cache.type)}</td>
-                    <td class="py-2.5 px-3 font-sans text-white">${escapeHtml(cache.name)}</td>
-                    <td class="py-2.5 px-2 text-center text-slate-300">${escapeHtml(cache.difficulty)}</td>
-                    <td class="py-2.5 px-2 text-center text-slate-300">${escapeHtml(cache.terrain)}</td>
-                    <td class="py-2 px-3">
+                    <td class="py-2.5 px-3 border-r border-slate-800/70 text-slate-400 font-mono text-[11px] align-top">
+                        ${cache.logDate ? escapeHtml(cache.logDate) : '<span class="text-slate-600">-</span>'}
+                    </td>
+                    <td class="py-2.5 px-2 border-r border-slate-800/70 text-center align-top">${getCacheTypeBadge(cache.type)}</td>
+                    <td class="py-2.5 px-3 border-r border-slate-800/70 font-sans text-white align-top">${escapeHtml(cache.name)}</td>
+                    <td class="py-2.5 px-2 border-r border-slate-800/70 text-center text-slate-300 align-top">${escapeHtml(cache.difficulty)}</td>
+                    <td class="py-2.5 px-2 border-r border-slate-800/70 text-center text-slate-300 align-top">${escapeHtml(cache.terrain)}</td>
+                    <td onclick="toggleCopyCell(this)"
+                        data-key="${coordKey}"
+                        data-copy="${escapeHtml(cache.ddmCoords)}"
+                        data-label="${cache.code} Coords"
+                        data-highlight="bg-emerald-950/70"
+                        class="py-2 px-3 border-r border-slate-800/70 align-top transition-colors duration-150 ${cache.ddmCoords !== '-' ? 'cursor-pointer hover:bg-slate-800/60' : ''} ${isCoordCopied ? 'bg-emerald-950/70' : ''}">
                         ${cache.ddmCoords !== '-' ? `
-                            <div class="flex items-center gap-1.5 group cursor-pointer" onclick="copyTextToClipboard('${safeCoords}', '${cache.code} Coords')">
-                                <span class="inline-block text-[9px] font-mono px-1.5 py-0.2 rounded border ${cache.isCorrected ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800' : 'bg-slate-900 text-slate-500 border-slate-800'} select-none">
-                                    ${cache.isCorrected ? 'Corrected' : 'Posted'}
-                                </span>
-                                <span class="${cache.isCorrected ? 'text-emerald-400 font-bold' : 'text-slate-300'} font-mono hover:underline">${escapeHtml(cache.ddmCoords)}</span>
-                                <button class="text-slate-500 hover:text-indigo-400 text-xs transition p-1" title="Copy Coordinates">
-                                    <i class="fa-regular fa-copy"></i>
-                                </button>
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="flex items-center gap-1.5">
+                                    <span class="inline-block text-[9px] font-mono px-1.5 py-0.2 rounded border ${cache.isCorrected ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800' : 'bg-slate-900 text-slate-500 border-slate-800'} select-none">
+                                        ${cache.isCorrected ? 'Corrected' : 'Posted'}
+                                    </span>
+                                    <span class="${cache.isCorrected ? 'text-emerald-400 font-bold' : 'text-slate-300'} font-mono whitespace-nowrap">${escapeHtml(cache.ddmCoords)}</span>
+                                </div>
+                                <i class="fa-regular fa-copy text-slate-500 text-xs shrink-0"></i>
                             </div>
                         ` : '<span class="text-slate-600">-</span>'}
                     </td>
-                    <td class="py-2 px-3">
+                    <td onclick="toggleCopyCell(this)"
+                        data-key="${noteKey}"
+                        data-copy="${escapeHtml(cache.personalNote)}"
+                        data-label="${cache.code} Note"
+                        data-highlight="bg-amber-950/70"
+                        class="py-2 px-3 align-top transition-colors duration-150 ${cache.personalNote ? 'cursor-pointer hover:bg-slate-800/60' : ''} ${isNoteCopied ? 'bg-amber-950/70' : ''}">
                         ${cache.personalNote ? `
-                            <div class="flex items-center gap-2 group cursor-pointer" onclick="copyTextToClipboard('${safeNote}', '${cache.code} Note')">
-                                <span class="text-amber-400 font-sans text-xs truncate max-w-[200px] inline-block hover:underline" title="${safeNote}">
-                                    <i class="fa-solid fa-sticky-note mr-1"></i>${escapeHtml(cache.personalNote)}
-                                </span>
-                                <button class="text-slate-500 hover:text-indigo-400 text-xs transition p-1" title="Copy Personal Note">
-                                    <i class="fa-regular fa-copy"></i>
-                                </button>
+                            <div class="flex items-start justify-between gap-2">
+                                <span class="text-amber-400 font-sans text-xs whitespace-pre-line break-words max-w-[260px]"><i class="fa-solid fa-sticky-note mr-1"></i>${escapeHtml(cache.personalNote)}</span>
+                                <i class="fa-regular fa-copy text-slate-500 text-xs mt-0.5 shrink-0"></i>
                             </div>
                         ` : '<span class="text-slate-600">-</span>'}
                     </td>
@@ -557,13 +998,20 @@
 
         function switchTab(tabId, btn) {
             document.querySelectorAll('.tab-view').forEach(el => el.classList.add('hidden'));
-            document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('bg-slate-800', 'text-white'); b.classList.add('text-slate-400'); });
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                b.classList.remove('bg-slate-800', 'text-white');
+                b.classList.add('text-slate-400');
+            });
             document.getElementById(tabId).classList.remove('hidden');
-            btn.classList.add('bg-slate-800', 'text-white');
+            if (btn) {
+                btn.classList.add('bg-slate-800', 'text-white');
+                btn.classList.remove('text-slate-400');
+            }
         }
 
         function clearData() {
             state.caches = [];
+            state.copiedCells.clear();
             renderCachesTable();
             document.getElementById('terminalOutput').innerHTML = '<div class="text-slate-600">[System Cleared] Console reset.</div>';
             setStatus('Ready');
