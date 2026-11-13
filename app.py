@@ -93,6 +93,25 @@ def parse_gc_date(raw_str):
     return None
 
 
+def parse_ddm_to_decimal(ddm_str):
+    if not ddm_str:
+        return None, None
+    m = re.search(
+        r'([NS])\s*(\d{1,2})°\s*([0-9.]+)\s+([EW])\s*(\d{1,3})°\s*([0-9.]+)',
+        ddm_str,
+        re.I,
+    )
+    if not m:
+        return None, None
+    lat = int(m.group(2)) + float(m.group(3)) / 60.0
+    if m.group(1).upper() == 'S':
+        lat = -lat
+    lng = int(m.group(5)) + float(m.group(6)) / 60.0
+    if m.group(4).upper() == 'W':
+        lng = -lng
+    return round(lat, 6), round(lng, 6)
+
+
 def classify_logbook_entry(entry):
     if not isinstance(entry, dict):
         return None
@@ -176,6 +195,129 @@ def extract_log_dates_from_page(page_html, session=None, code=''):
     return last_found_str, archive_str, found_after_archive
 
 
+def normalize_cache_type(raw_type):
+    if not raw_type:
+        return 'Traditional'
+    ct_lower = str(raw_type).lower()
+    if 'traditional' in ct_lower:
+        return 'Traditional'
+    if 'unknown' in ct_lower or 'mystery' in ct_lower:
+        return 'Mystery'
+    if 'multi' in ct_lower:
+        return 'Multi-cache'
+    if 'earth' in ct_lower:
+        return 'Earthcache'
+    if 'virtual' in ct_lower:
+        return 'Virtual'
+    if 'letterbox' in ct_lower:
+        return 'Letterbox Hybrid'
+    if 'wherigo' in ct_lower:
+        return 'Wherigo'
+    if 'webcam' in ct_lower:
+        return 'Webcam'
+    if 'cito' in ct_lower:
+        return 'CITO'
+    if 'mega' in ct_lower:
+        return 'Mega-Event'
+    if 'giga' in ct_lower:
+        return 'Giga-Event'
+    if 'event' in ct_lower:
+        return 'Event'
+    return str(raw_type).strip()
+
+
+def extract_full_html_metadata(page_html):
+    name = ''
+    owner = ''
+    c_type = 'Traditional'
+    diff = '-'
+    terr = '-'
+    lat = None
+    lng = None
+    is_corr = False
+    note = ''
+
+    name_m = (
+        re.search(r'id=["\']ctl00_ContentBody_CacheName["\'][^>]*>(.*?)</span>', page_html, re.DOTALL | re.I)
+        or re.search(r'<h1[^>]*class=["\'][^"\']*sr-only[^"\']*["\'][^>]*>(.*?)</h1>', page_html, re.DOTALL | re.I)
+        or re.search(r'<title>(.*?)(?:\s*-\s*Geocaching|\s*\|\s*Geocaching)</title>', page_html, re.I)
+    )
+    if name_m:
+        clean = re.sub(r'<[^>]+>', '', name_m.group(1))
+        clean = re.sub(r'^GC[A-Z0-9]+\s*[-–:]\s*', '', clean).strip()
+        name = html_lib.unescape(clean)
+
+    owner_m = (
+        re.search(r'id=["\']ctl00_ContentBody_mcd1["\'][^>]*>.*?<a[^>]*>(.*?)</a>', page_html, re.DOTALL | re.I)
+        or re.search(r'id=["\']ctl00_ContentBody_m_PlacedBy["\'][^>]*>(.*?)</span>', page_html, re.DOTALL | re.I)
+    )
+    if owner_m:
+        owner = html_lib.unescape(re.sub(r'<[^>]+>', '', owner_m.group(1))).strip()
+
+    type_m = (
+        re.search(r'class=["\'][^"\']*cacheImage[^"\']*["\'][^>]*title=["\']([^"\']+)["\']', page_html, re.I)
+        or re.search(r'href=["\'][^"\']*cache_types\.aspx[^"\']*["\'][^>]*title=["\']([^"\']+)["\']', page_html, re.I)
+        or re.search(r'/images/WptTypes/(?:sm/)?(\d+)\.(?:gif|png|svg)', page_html, re.I)
+    )
+    if type_m:
+        if type_m.lastindex == 1 and type_m.group(1).isdigit():
+            c_type = WPT_TYPE_MAP.get(int(type_m.group(1)), 'Traditional')
+        else:
+            c_type = html_lib.unescape(type_m.group(1)).strip()
+
+    diff_m = re.search(r'id=["\']ctl00_ContentBody_uxLegendScale["\'][^>]*>.*?alt=["\']([0-9.]+)\s+out of', page_html, re.DOTALL | re.I)
+    if diff_m:
+        diff = diff_m.group(1)
+
+    terr_m = re.search(r'id=["\']ctl00_ContentBody_Localize12["\'][^>]*>.*?alt=["\']([0-9.]+)\s+out of', page_html, re.DOTALL | re.I)
+    if terr_m:
+        terr = terr_m.group(1)
+
+    udc_block = re.search(r'userDefinedCoords\s*=\s*(\{.*?\});', page_html, re.DOTALL)
+    if udc_block:
+        try:
+            udc_data = json.loads(udc_block.group(1)).get('data') or {}
+            if udc_data.get('isUserDefined') and isinstance(udc_data.get('newLatLng'), list):
+                lat = float(udc_data['newLatLng'][0])
+                lng = float(udc_data['newLatLng'][1])
+                is_corr = True
+        except Exception:
+            pass
+
+    if lat is None or lng is None:
+        map_ll = re.search(r'mapLatLng\s*=\s*\{\s*"?lat"?\s*:\s*([-0-9.]+)\s*,\s*"?lng"?\s*:\s*([-0-9.]+)', page_html)
+        if map_ll:
+            lat = float(map_ll.group(1))
+            lng = float(map_ll.group(2))
+
+    if lat is None or lng is None:
+        ux_latlon = re.search(r'id=["\']uxLatLon["\'][^>]*>(.*?)</span>', page_html, re.DOTALL | re.I)
+        if ux_latlon:
+            ddm_text = html_lib.unescape(re.sub(r'<[^>]+>', '', ux_latlon.group(1))).strip()
+            lat, lng = parse_ddm_to_decimal(ddm_text)
+
+    note_m = (
+        re.search(r'<span[^>]*id=["\']cache_note["\'][^>]*>(.*?)</span>', page_html, re.DOTALL | re.I)
+        or re.search(r'<div[^>]*id=["\']srOnlyCacheNote["\'][^>]*>(.*?)</div>', page_html, re.DOTALL | re.I)
+    )
+    if note_m:
+        cleaned = html_lib.unescape(re.sub(r'<[^>]+>', '', note_m.group(1))).strip()
+        if cleaned and cleaned not in ('Click to enter a note', 'Add a personal geocache note.'):
+            note = cleaned
+
+    return {
+        'name': name,
+        'ownerName': owner,
+        'type': normalize_cache_type(c_type),
+        'difficulty': diff,
+        'terrain': terr,
+        'lat': lat,
+        'lng': lng,
+        'isCorrected': is_corr,
+        'personalNote': note,
+    }
+
+
 def fetch_search_v2_metadata(session, code):
     search_url = 'https://www.geocaching.com/api/proxy/web/search/v2'
     params = {
@@ -249,127 +391,6 @@ def fetch_search_v2_metadata(session, code):
     except Exception as exc:
         print(f'Search v2 lookup failed for {code}: {exc}')
         return None
-
-
-def normalize_cache_type(raw_type):
-    if not raw_type:
-        return 'Traditional'
-    ct_lower = str(raw_type).lower()
-    if 'traditional' in ct_lower:
-        return 'Traditional'
-    if 'unknown' in ct_lower or 'mystery' in ct_lower:
-        return 'Mystery'
-    if 'multi' in ct_lower:
-        return 'Multi-cache'
-    if 'earth' in ct_lower:
-        return 'Earthcache'
-    if 'virtual' in ct_lower:
-        return 'Virtual'
-    if 'letterbox' in ct_lower:
-        return 'Letterbox Hybrid'
-    if 'wherigo' in ct_lower:
-        return 'Wherigo'
-    if 'webcam' in ct_lower:
-        return 'Webcam'
-    if 'cito' in ct_lower:
-        return 'CITO'
-    if 'mega' in ct_lower:
-        return 'Mega-Event'
-    if 'giga' in ct_lower:
-        return 'Giga-Event'
-    if 'event' in ct_lower:
-        return 'Event'
-    return str(raw_type).strip()
-
-
-def extract_html_fallback_metadata(page_html):
-    cache_name = ''
-    owner_name = ''
-    cache_type = 'Traditional'
-    difficulty = '-'
-    terrain = '-'
-    lat = None
-    lng = None
-    is_corrected = False
-    personal_note = ''
-
-    name_match = re.search(
-        r'id=["\']ctl00_ContentBody_CacheName["\'][^>]*>(.*?)</span>',
-        page_html,
-        re.DOTALL | re.I,
-    )
-    if name_match:
-        cache_name = html_lib.unescape(re.sub(r'<[^>]+>', '', name_match.group(1))).strip()
-
-    mcd1_match = re.search(
-        r'id=["\']ctl00_ContentBody_mcd1["\'][^>]*>.*?<a[^>]*>(.*?)</a>',
-        page_html,
-        re.DOTALL | re.I,
-    )
-    if mcd1_match:
-        owner_name = html_lib.unescape(re.sub(r'<[^>]+>', '', mcd1_match.group(1))).strip()
-
-    wpt_match = re.search(r'/images/WptTypes/(?:sm/)?(\d+)\.(?:gif|png|svg)', page_html, re.I)
-    if wpt_match:
-        cache_type = WPT_TYPE_MAP.get(int(wpt_match.group(1)), 'Traditional')
-
-    diff_match = re.search(
-        r'id=["\']ctl00_ContentBody_uxLegendScale["\'][^>]*>.*?alt=["\']([0-9.]+)\s+out of',
-        page_html,
-        re.DOTALL | re.I,
-    )
-    if diff_match:
-        difficulty = diff_match.group(1)
-
-    terr_match = re.search(
-        r'id=["\']ctl00_ContentBody_Localize12["\'][^>]*>.*?alt=["\']([0-9.]+)\s+out of',
-        page_html,
-        re.DOTALL | re.I,
-    )
-    if terr_match:
-        terrain = terr_match.group(1)
-
-    udc_block = re.search(r'userDefinedCoords\s*=\s*(\{.*?\});', page_html, re.DOTALL)
-    if udc_block:
-        try:
-            udc_data = json.loads(udc_block.group(1)).get('data') or {}
-            if udc_data.get('isUserDefined') and isinstance(udc_data.get('newLatLng'), list):
-                lat = float(udc_data['newLatLng'][0])
-                lng = float(udc_data['newLatLng'][1])
-                is_corrected = True
-        except Exception:
-            pass
-
-    if lat is None or lng is None:
-        map_ll = re.search(
-            r'mapLatLng\s*=\s*\{\s*"?lat"?\s*:\s*([-0-9.]+)\s*,\s*"?lng"?\s*:\s*([-0-9.]+)',
-            page_html,
-        )
-        if map_ll:
-            lat = float(map_ll.group(1))
-            lng = float(map_ll.group(2))
-
-    note_match = re.search(
-        r'<span[^>]*id=["\']cache_note["\'][^>]*>(.*?)</span>',
-        page_html,
-        re.DOTALL | re.I,
-    )
-    if note_match:
-        cleaned = html_lib.unescape(re.sub(r'<[^>]+>', '', note_match.group(1))).strip()
-        if cleaned and cleaned not in ('Click to enter a note', 'Add a personal geocache note.'):
-            personal_note = cleaned
-
-    return {
-        'name': cache_name,
-        'ownerName': owner_name,
-        'type': normalize_cache_type(cache_type),
-        'difficulty': difficulty,
-        'terrain': terrain,
-        'lat': lat,
-        'lng': lng,
-        'isCorrected': is_corrected,
-        'personalNote': personal_note,
-    }
 
 
 @app.route('/')
@@ -514,42 +535,53 @@ def enrich_caches():
     def fetch_cache_details(code):
         url = f'https://www.geocaching.com/geocache/{code}'
         try:
-            v2_meta = fetch_search_v2_metadata(session, code)
+            v2_meta = fetch_search_v2_metadata(session, code) or {}
 
             resp = session.get(url, timeout=10)
             page_html = resp.text if resp.status_code == 200 else ''
 
-            # Strict check: confirm if the cache is actually archived on Geocaching.com
-            is_truly_archived = False
-            if (
-                'This cache has been archived' in page_html
-                or 'class="OldWarning"' in page_html
-                or '"isArchived":true' in page_html
-            ):
-                is_truly_archived = True
-            elif v2_meta and v2_meta.get('status') == 3:  # 3 usually designates archived in GC status enums
-                is_truly_archived = True
-
-            html_meta = extract_html_fallback_metadata(page_html) if page_html else {}
+            html_meta = extract_full_html_metadata(page_html) if page_html else {}
             last_found_date, archive_date, found_after_archive = (
                 extract_log_dates_from_page(page_html, session=session, code=code)
                 if page_html
                 else ('', '', False)
             )
 
-            # If there is an archive log date present in the logbook, treat it as archived
+            # STRICT ARCHIVE CHECK: A cache is only archived if it has a confirmed archive date in logs
+            # or explicit archive warning text on the page / API status.
+            is_truly_archived = False
             if archive_date:
                 is_truly_archived = True
+            elif (
+                'This cache has been archived' in page_html
+                or 'class="OldWarning"' in page_html
+                or '"isArchived":true' in page_html
+            ):
+                is_truly_archived = True
+            elif v2_meta and v2_meta.get('status') == 3:
+                is_truly_archived = True
 
-            meta = v2_meta or html_meta
-            if v2_meta and html_meta:
-                for field in ('name', 'ownerName', 'type', 'personalNote'):
-                    if not meta.get(field) and html_meta.get(field):
-                        meta[field] = html_meta[field]
-                if meta.get('lat') is None and html_meta.get('lat') is not None:
-                    meta['lat'] = html_meta['lat']
-                    meta['lng'] = html_meta['lng']
-                    meta['isCorrected'] = html_meta['isCorrected']
+            if not is_truly_archived:
+                return None  # Skip active or non-archived caches completely
+
+            meta = {}
+            for key in ('name', 'ownerName', 'type', 'difficulty', 'terrain', 'lat', 'lng', 'isCorrected', 'personalNote', 'hasFound', 'foundDate'):
+                meta[key] = html_meta.get(key) if html_meta.get(key) is not None and html_meta.get(key) != '' and html_meta.get(key) != '-' else v2_meta.get(key)
+
+            if not meta.get('name') and v2_meta.get('name'):
+                meta['name'] = v2_meta['name']
+            if not meta.get('ownerName') and v2_meta.get('ownerName'):
+                meta['ownerName'] = v2_meta['ownerName']
+            if (not meta.get('difficulty') or meta.get('difficulty') == '-') and v2_meta.get('difficulty'):
+                meta['difficulty'] = v2_meta['difficulty']
+            if (not meta.get('terrain') or meta.get('terrain') == '-') and v2_meta.get('terrain'):
+                meta['terrain'] = v2_meta['terrain']
+            if meta.get('lat') is None and v2_meta.get('lat') is not None:
+                meta['lat'] = v2_meta['lat']
+                meta['lng'] = v2_meta['lng']
+                meta['isCorrected'] = v2_meta['isCorrected']
+            if not meta.get('personalNote') and v2_meta.get('personalNote'):
+                meta['personalNote'] = v2_meta['personalNote']
 
             owner_name = meta.get('ownerName', '')
             is_owner = bool(
@@ -560,7 +592,7 @@ def enrich_caches():
 
             return {
                 'code': code,
-                'name': meta.get('name', ''),
+                'name': meta.get('name', code),
                 'type': meta.get('type', 'Traditional'),
                 'difficulty': meta.get('difficulty', '-'),
                 'terrain': meta.get('terrain', '-'),
@@ -569,35 +601,17 @@ def enrich_caches():
                 'isCorrected': bool(meta.get('isCorrected')),
                 'ownerName': owner_name,
                 'personalNote': meta.get('personalNote', ''),
-                'hasFound': bool(meta.get('hasFound')),
+                'hasFound': bool(meta.get('hasFound') or v2_meta.get('hasFound')),
                 'isOwner': is_owner,
-                'isArchived': is_truly_archived,
-                'foundDate': meta.get('foundDate', ''),
+                'isArchived': True,
+                'foundDate': meta.get('foundDate', v2_meta.get('foundDate', '')),
                 'lastFoundDate': last_found_date,
                 'archiveDate': archive_date,
                 'foundAfterArchive': found_after_archive,
             }
         except Exception as e:
             print(f'Error enriching {code}: {e}')
-            return {
-                'code': code,
-                'name': '',
-                'type': 'Traditional',
-                'difficulty': '-',
-                'terrain': '-',
-                'lat': None,
-                'lng': None,
-                'isCorrected': False,
-                'ownerName': '',
-                'personalNote': '',
-                'hasFound': False,
-                'isOwner': False,
-                'isArchived': False,
-                'foundDate': '',
-                'lastFoundDate': '',
-                'archiveDate': '',
-                'foundAfterArchive': False,
-            }
+            return None
 
     enriched_results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
@@ -606,8 +620,7 @@ def enrich_caches():
         ]
         for future in concurrent.futures.as_completed(futures):
             res = future.result()
-            # Filter out caches that are not truly archived so they don't appear in the archived list
-            if res['isArchived']:
+            if res and res.get('isArchived'):
                 enriched_results[res['code']] = res
 
     return jsonify(enriched_results)
