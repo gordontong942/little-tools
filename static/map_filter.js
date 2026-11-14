@@ -58,54 +58,45 @@ if (document.readyState === 'loading') {
 function buildQueryParamSets(countryCfg, regionObj, foundFilter, username) {
     const targetOt = regionObj.ot || 'country';
     const targetOid = regionObj.oid !== undefined ? regionObj.oid : countryCfg.oid;
+    const activeUser = username || state.username || 'gordon942';
 
     const makeBase = () => {
         const p = new URLSearchParams();
         p.set('sort', 'distance');
         p.set('asc', 'true');
         if (regionObj.st) p.set('st', regionObj.st);
+        if (regionObj.lat !== undefined) p.set('lat', String(regionObj.lat));
+        if (regionObj.lng !== undefined) p.set('lng', String(regionObj.lng));
         p.set('ot', targetOt);
         p.set('oid', String(targetOid));
         p.set('r', String(regionObj.r));
-        if (regionObj.lat !== undefined) p.set('lat', String(regionObj.lat));
-        if (regionObj.lng !== undefined) p.set('lng', String(regionObj.lng));
         if (regionObj.zoom !== undefined) p.set('zoom', String(regionObj.zoom));
         if (regionObj.bbox) p.set('box', regionObj.bbox);
         return p;
     };
 
     switch (foundFilter) {
-        case 'NOT_FOUND': {
-            const p = makeBase();
-            p.set('hf', '1');
-            p.set('nfb', username || 'gordon942');
-            return [p];
-        }
-        case 'FOUND': {
-            const pFound = makeBase();
-            pFound.set('hf', '1');
-            const pOwned = makeBase();
-            pOwned.set('ho', '1');
-            return [pFound, pOwned];
-        }
-        case 'FOUND_EXCLUDE_OWNED': {
-            const p = makeBase();
-            p.set('hf', '1');
-            return [p];
-        }
         case 'SOLVED': {
             const p = makeBase();
-            p.set('hc', '1');
+            p.set('cc', '1');
+            p.set('ho', '1');
             return [p];
         }
         case 'OWNED': {
             const p = makeBase();
-            p.set('ho', '1');
+            p.set('hb', activeUser);
+            p.set('ho', '0');
+            p.set('sa', '1');
             return [p];
         }
-        case 'ALL':
+        case 'NOT_FOUND':
         default: {
-            return [makeBase()];
+            const p = makeBase();
+            p.set('hf', '1');
+            p.set('nfb', activeUser);
+            if (regionObj.lat !== undefined) p.set('mlat', String(regionObj.lat));
+            if (regionObj.lng !== undefined) p.set('mlng', String(regionObj.lng));
+            return [p];
         }
     }
 }
@@ -113,7 +104,14 @@ function buildQueryParamSets(countryCfg, regionObj, foundFilter, username) {
 function checkItemIsOwner(item) {
     const ownerName = extractValue(item.owner || item.ownerName || item.placedBy, '');
     const activeUser = (state.username || 'gordon942').toLowerCase();
-    return Boolean(item.isOwner || item.userState?.isOwner) || ownerName.toLowerCase() === activeUser;
+    return Boolean(
+        item.isOwner ||
+        item.isOwned ||
+        item.userState?.isOwner ||
+        item.userState?.isOwned ||
+        item.userData?.isOwner ||
+        item.userData?.isOwned
+    ) || ownerName.toLowerCase() === activeUser;
 }
 
 function checkItemIsFound(item) {
@@ -122,6 +120,9 @@ function checkItemIsFound(item) {
         item.userState?.isFound === true ||
         item.userState?.found === true ||
         Boolean(item.userState?.foundDate) ||
+        item.userData?.hasFound === true ||
+        item.userData?.isFound === true ||
+        Boolean(item.userData?.foundDate) ||
         item.hasFound === true ||
         item.isFound === true ||
         item.found === true ||
@@ -130,30 +131,42 @@ function checkItemIsFound(item) {
 }
 
 function checkItemIsSolved(item) {
-    const corr = item.userCorrectedCoordinates;
+    const corr = item.userCorrectedCoordinates || item.userData?.correctedCoordinates;
     return Boolean(corr && typeof corr.latitude === 'number' && typeof corr.longitude === 'number');
 }
 
 function matchesStatusFilter(filterMode, isFound, isOwner, isSolved) {
     switch (filterMode) {
-        case 'FOUND': return isFound || isOwner;
-        case 'FOUND_EXCLUDE_OWNED': return isFound && !isOwner;
-        case 'NOT_FOUND': return !isFound && !isOwner;
         case 'SOLVED': return isSolved;
         case 'OWNED': return isOwner;
-        case 'ALL':
-        default: return true;
+        case 'NOT_FOUND':
+        default: return !isFound && !isOwner;
     }
+}
+
+function extractMapBatch(jsonData) {
+    if (!jsonData || typeof jsonData !== 'object') return { batch: [], total: 0 };
+
+    const pp = jsonData.pageProps || jsonData;
+    const searchObj = pp.searchResults || pp.initialSearchResults || {};
+    const batch =
+        searchObj.results ||
+        searchObj.geocaches ||
+        pp.mapData?.geocaches ||
+        pp.geocaches ||
+        [];
+    const total = searchObj.total || searchObj.totalCount || batch.length;
+    return { batch: Array.isArray(batch) ? batch : [], total };
 }
 
 async function startExtraction() {
     if (state.isExecuting) return;
     const cookie = document.getElementById('cookieInput').value.trim();
     const country = document.getElementById('countrySelect').value;
-    const countryCfg = COUNTRY_CONFIG[country];
+    const countryCfg = (window.COUNTRY_CONFIG || COUNTRY_CONFIG)[country];
     const regionIdx = parseInt(document.getElementById('regionSelect').value, 10) || 0;
     const regionObj = countryCfg.regions[regionIdx];
-    const foundFilter = document.getElementById('foundFilterConfig').value;
+    const foundFilter = document.getElementById('foundFilterConfig').value || 'NOT_FOUND';
     const limitVal = parseLimitInput(document.getElementById('cacheLimitInput').value);
     const shouldEnrich = document.getElementById('enrichToggle').checked;
 
@@ -166,20 +179,18 @@ async function startExtraction() {
     document.getElementById('pgcSubmitBtn').disabled = true;
 
     const filterLabelMap = {
-        ALL: 'All Caches',
-        FOUND: 'Found (Include Owned)',
-        FOUND_EXCLUDE_OWNED: 'Found (Exclude Owned)',
         NOT_FOUND: 'Not Found Only',
         SOLVED: 'Only Solved Caches',
         OWNED: 'Owned Caches Only'
     };
+    const activeFilterLabel = filterLabelMap[foundFilter] || filterLabelMap.NOT_FOUND;
     const limitLabel = limitVal === -1 ? 'All' : `First ${limitVal}`;
-    document.getElementById('batchSizeBadge').textContent = `Filter: ${filterLabelMap[foundFilter]} | Limit: ${limitLabel} (${country} - ${regionObj.name})`;
+    document.getElementById('batchSizeBadge').textContent = `Filter: ${activeFilterLabel} | Limit: ${limitLabel} (${country} - ${regionObj.name})`;
 
     try {
         const targetOt = regionObj.ot || 'country';
         const targetOid = regionObj.oid !== undefined ? regionObj.oid : countryCfg.oid;
-        log(`Target: ${country} -> ${regionObj.name} (ot=${targetOt}, oid=${targetOid}) | Filter: ${filterLabelMap[foundFilter]} | Limit: ${limitLabel}`, 'info');
+        log(`Target: ${country} -> ${regionObj.name} (ot=${targetOt}, oid=${targetOid}) | Filter: ${activeFilterLabel} | Limit: ${limitLabel}`, 'info');
         log('Step 1: Fetching map page for Next.js buildId & username...', 'info');
         const mapRes = await fetch('/api/proxy', {
             method: 'POST',
@@ -235,28 +246,17 @@ async function startExtraction() {
                     throw new Error(jsonData.error || 'Failed to query map JSON endpoint');
                 }
 
-                const searchObj = jsonData?.pageProps?.searchResults || {};
-                const batch = searchObj.results || jsonData?.pageProps?.mapData?.geocaches || [];
-                const totalAvailable = searchObj.total || batch.length;
+                const { batch, total: totalAvailable } = extractMapBatch(jsonData);
 
                 for (const item of batch) {
-                    const code = item.code || item.gcCode;
+                    const code = item.code || item.gcCode || item.referenceCode;
                     if (code && !seenCodes.has(code)) {
                         seenCodes.add(code);
                         searchResults.push(item);
                     }
                 }
 
-                const currentFilteredCount = searchResults.filter(item =>
-                    matchesStatusFilter(
-                        foundFilter,
-                        checkItemIsFound(item),
-                        checkItemIsOwner(item),
-                        checkItemIsSolved(item)
-                    )
-                ).length;
-
-                const reachedLimit = (limitVal !== -1 && currentFilteredCount >= limitVal);
+                const reachedLimit = (limitVal !== -1 && searchResults.length >= limitVal);
                 if (reachedLimit || batch.length === 0 || skip + batch.length >= totalAvailable || batch.length < 50) {
                     keepPaging = false;
                 } else {
@@ -265,19 +265,25 @@ async function startExtraction() {
             }
         }
 
-        searchResults = searchResults.filter(item => {
-            const isOwner = checkItemIsOwner(item);
-            const isFound = checkItemIsFound(item);
-            const isSolved = checkItemIsSolved(item);
-            return matchesStatusFilter(foundFilter, isFound, isOwner, isSolved);
-        });
+        if (foundFilter === 'NOT_FOUND') {
+            searchResults = searchResults.filter(item => {
+                const hasExplicitFound = (
+                    item.userState?.hasFound === true ||
+                    item.userState?.isFound === true ||
+                    item.hasFound === true ||
+                    item.isFound === true
+                );
+                const isOwner = checkItemIsOwner(item);
+                return !hasExplicitFound && !isOwner;
+            });
+        }
 
         const matchedCount = searchResults.length;
         if (limitVal !== -1 && searchResults.length > limitVal) {
             searchResults = searchResults.slice(0, limitVal);
         }
 
-        log(`Received ${matchedCount} matching caches -> taking ${searchResults.length}.`, 'success');
+        log(`Received ${matchedCount} candidate caches -> taking ${searchResults.length}.`, 'success');
 
         state.caches = searchResults.map(item => {
             const ownerName = extractValue(item.owner || item.ownerName || item.placedBy, '-');
@@ -300,7 +306,7 @@ async function startExtraction() {
             }
 
             return {
-                code: item.code || item.gcCode,
+                code: item.code || item.gcCode || item.referenceCode,
                 owner: ownerName,
                 name: extractValue(item.name || item.geocacheName, 'N/A'),
                 type: parseCacheType(item),
@@ -326,7 +332,13 @@ async function startExtraction() {
             const enrichRes = await fetch('/api/enrich', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ gc_codes: gcCodes, cookie, limit: limitVal })
+                body: JSON.stringify({
+                    gc_codes: gcCodes,
+                    cookie,
+                    limit: limitVal,
+                    archived_only: false,
+                    username: state.username || 'gordon942'
+                })
             });
 
             if (enrichRes.status === 401) {
@@ -343,7 +355,11 @@ async function startExtraction() {
                     if (details) {
                         if (details.ownerName) cache.owner = details.ownerName;
                         cache.personalNote = details.personalNote || '';
-                        cache.logDate = details.foundDate || '';
+                        cache.logDate = details.foundDate || details.lastFoundDate || '';
+                        if (details.lat !== null && details.lat !== undefined && details.lng !== null && details.lng !== undefined) {
+                            cache.ddmCoords = toDDM(details.lat, details.lng);
+                            cache.isCorrected = Boolean(details.isCorrected);
+                        }
 
                         if (details.isOwner || (cache.owner && cache.owner.toLowerCase() === activeUser)) {
                             cache.isOwner = true;
@@ -371,10 +387,13 @@ async function startExtraction() {
             }
         } else if (!shouldEnrich && gcCodes.length > 0) {
             log('Step 3: Skipped deep HTML enrichment (fast mode enabled).', 'info');
+            state.caches = state.caches.filter(c =>
+                matchesStatusFilter(foundFilter, c.hasFound, c.isOwner, c.isCorrected)
+            );
         }
 
         renderCachesTable();
-        log('Extraction complete! Switching to Filter Cache Result...', 'success');
+        log(`Extraction complete! Showing ${state.caches.length} caches.`, 'success');
         setStatus('SUCCESS');
 
         switchTab('cachesTab', document.getElementById('btnCachesTab'));

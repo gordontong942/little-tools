@@ -1,5 +1,11 @@
 async function startProjectGcExtraction() {
+
     if (state.isExecuting) return;
+
+    if (typeof syncPgcFromDate === 'function') {
+        syncPgcFromDate();
+    }
+
     const pgcCookie = document.getElementById('pgcCookieInput').value.trim();
     const pgcUrl = document.getElementById('pgcUrlInput').value.trim();
     const gcCookie = document.getElementById('cookieInput').value.trim();

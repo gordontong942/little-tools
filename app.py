@@ -249,6 +249,7 @@ def extract_full_html_metadata(page_html):
     lng = None
     is_corr = False
     note = ''
+    has_found = False
 
     name_m = (
         re.search(r'id=["\']ctl00_ContentBody_CacheName["\'][^>]*>(.*?)</span>', page_html, re.DOTALL | re.I)
@@ -316,6 +317,14 @@ def extract_full_html_metadata(page_html):
     if note_m:
         note = clean_note_text(note_m.group(1))
 
+    if (
+        '"isUserFound":true' in page_html
+        or '"hasFound":true' in page_html
+        or 'id="ctl00_ContentBody_LoggedItImage"' in page_html
+        or 'class="found-status"' in page_html
+    ):
+        has_found = True
+
     return {
         'name': name,
         'ownerName': owner,
@@ -326,6 +335,7 @@ def extract_full_html_metadata(page_html):
         'lng': lng,
         'isCorrected': is_corr,
         'personalNote': note,
+        'hasFound': has_found,
     }
 
 
@@ -385,6 +395,16 @@ def fetch_search_v2_metadata(session, code):
         elif isinstance(gt, int):
             cache_type = WPT_TYPE_MAP.get(gt, cache_type)
 
+        has_found = bool(
+            user_data.get('isFound')
+            or user_data.get('hasFound')
+            or user_data.get('foundDate')
+        )
+        is_owned = bool(
+            user_data.get('isOwned')
+            or user_data.get('isOwner')
+        )
+
         return {
             'name': item.get('name') or '',
             'ownerName': str(owner_name).strip(),
@@ -395,7 +415,8 @@ def fetch_search_v2_metadata(session, code):
             'lng': lng,
             'isCorrected': is_corrected,
             'personalNote': personal_note,
-            'hasFound': bool(user_data.get('foundDate') or user_data.get('hasFound')),
+            'hasFound': has_found,
+            'isOwned': is_owned,
             'foundDate': str(user_data.get('foundDate') or ''),
             'status': item.get('status'),
         }
@@ -533,6 +554,7 @@ def enrich_caches():
     raw_limit = data.get('limit', 100)
     gc_codes = data.get('gc_codes', [])
     archived_only = bool(data.get('archived_only', False))
+    active_user = str(data.get('username') or 'gordon942').strip().lower()
 
     if raw_limit is not None and int(raw_limit) > 0:
         gc_codes = gc_codes[: int(raw_limit)]
@@ -611,9 +633,16 @@ def enrich_caches():
 
             owner_name = meta.get('ownerName', '')
             is_owner = bool(
-                owner_name.lower() == 'gordon942'
+                (owner_name and owner_name.lower() == active_user)
+                or v2_meta.get('isOwned')
                 or 'uxOwnerOptions' in page_html
                 or 'You own this' in page_html
+            )
+
+            has_found = bool(
+                meta.get('hasFound')
+                or v2_meta.get('hasFound')
+                or last_found_date
             )
 
             return {
@@ -627,7 +656,7 @@ def enrich_caches():
                 'isCorrected': bool(meta.get('isCorrected')),
                 'ownerName': owner_name,
                 'personalNote': meta.get('personalNote') or '',
-                'hasFound': bool(meta.get('hasFound') or v2_meta.get('hasFound')),
+                'hasFound': has_found,
                 'isOwner': is_owner,
                 'isArchived': is_truly_archived,
                 'foundDate': meta.get('foundDate', v2_meta.get('foundDate', '')),

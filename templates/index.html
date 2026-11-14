@@ -129,9 +129,6 @@
                             <select id="foundFilterConfig"
                                 class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:border-indigo-500 focus:outline-none">
                                 <option value="NOT_FOUND" selected>Not Found Caches Only</option>
-                                <option value="ALL">All Caches</option>
-                                <option value="FOUND">Found (Include Owned)</option>
-                                <option value="FOUND_EXCLUDE_OWNED">Found (Exclude Owned)</option>
                                 <option value="SOLVED">Only Solved Caches</option>
                                 <option value="OWNED">Owned Caches Only</option>
                             </select>
@@ -245,13 +242,21 @@
                     <div class="space-y-1.5">
                         <label class="text-xs font-medium text-slate-300">Project-GC MapCompare URL <span class="text-rose-400">*</span></label>
                         <textarea id="pgcUrlInput" rows="4"
-                            class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:border-rose-500 focus:outline-none resize-none">https://project-gc.com/Tools/MapCompare?player_prc_profileName=gordon942&amp;geocache_mc_show%5B%5D=found-none&amp;geocache_mc_ownedAsFound=on&amp;geocache_crc_country=Hong+Kong&amp;geocache_dae_archived=on&amp;submit=Filter</textarea>
+                            class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:border-rose-500 focus:outline-none resize-none">https://project-gc.com/Tools/MapCompare?player_prc_profileName=gordon942&amp;geocache_mc_show%5B%5D=found-none&amp;geocache_mc_ownedAsFound=on&amp;geocache_crc_country=Hong+Kong&amp;geocache_dae_archived=on&amp;geocache_hd_fromDate=2015-01-01&amp;submit=Filter</textarea>
                     </div>
 
-                    <div class="space-y-1.5">
-                        <label class="text-xs font-medium text-slate-300">First N (-1 / all = All)</label>
-                        <input type="text" id="pgcLimitInput" value="100" placeholder="100"
-                            class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:outline-none focus:border-rose-500">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-medium text-slate-300">From Date (geocache_hd_fromDate)</label>
+                            <input type="date" id="pgcFromDateInput" value="2015-01-01" onchange="syncPgcFromDate()"
+                                class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:outline-none focus:border-rose-500">
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-medium text-slate-300">First N (-1 / all = All)</label>
+                            <input type="text" id="pgcLimitInput" value="100" placeholder="100"
+                                class="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-800 bg-slate-950 text-slate-200 focus:outline-none focus:border-rose-500">
+                        </div>
                     </div>
                 </div>
 
@@ -345,5 +350,35 @@
     <script src="/static/utils.js"></script>
     <script src="/static/map_filter.js"></script>
     <script src="/static/archived_pgc.js"></script>
+    <script>
+        function syncPgcFromDate() {
+            const urlInput = document.getElementById('pgcUrlInput');
+            const dateInput = document.getElementById('pgcFromDateInput');
+            if (!urlInput || !dateInput) return;
+
+            const fromDate = (dateInput.value || '2015-01-01').trim();
+            if (!dateInput.value) {
+                dateInput.value = fromDate;
+            }
+
+            const rawUrl = urlInput.value.trim();
+            if (!rawUrl) return;
+
+            try {
+                const parsed = new URL(rawUrl);
+                parsed.searchParams.set('geocache_hd_fromDate', fromDate);
+                urlInput.value = parsed.toString();
+            } catch (_) {
+                if (/([?&])geocache_hd_fromDate=[^&]*/i.test(rawUrl)) {
+                    urlInput.value = rawUrl.replace(/([?&])geocache_hd_fromDate=[^&]*/i, `$1geocache_hd_fromDate=${encodeURIComponent(fromDate)}`);
+                } else {
+                    const sep = rawUrl.includes('?') ? '&' : '?';
+                    urlInput.value = `${rawUrl}${sep}geocache_hd_fromDate=${encodeURIComponent(fromDate)}`;
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', syncPgcFromDate);
+    </script>
 </body>
 </html>
