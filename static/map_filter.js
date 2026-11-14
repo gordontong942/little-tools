@@ -355,7 +355,7 @@ async function startExtraction() {
                     if (details) {
                         if (details.ownerName) cache.owner = details.ownerName;
                         cache.personalNote = details.personalNote || '';
-                        cache.logDate = details.foundDate || details.lastFoundDate || '';
+                        cache.logDate = details.foundDate || '';
                         if (details.lat !== null && details.lat !== undefined && details.lng !== null && details.lng !== undefined) {
                             cache.ddmCoords = toDDM(details.lat, details.lng);
                             cache.isCorrected = Boolean(details.isCorrected);

@@ -93,6 +93,15 @@ def parse_gc_date(raw_str):
     return None
 
 
+def normalize_date_str(raw_str):
+    if not raw_str:
+        return ''
+    dt = parse_gc_date(raw_str)
+    if dt:
+        return dt.strftime('%Y-%m-%d')
+    return str(raw_str).strip()
+
+
 def parse_ddm_to_decimal(ddm_str):
     if not ddm_str:
         return None, None
@@ -131,9 +140,22 @@ def classify_logbook_entry(entry):
     return None
 
 
-def extract_log_dates_from_page(page_html, session=None, code=''):
+def log_entry_matches_user(entry, active_user):
+    if not active_user or not isinstance(entry, dict):
+        return False
+    target = active_user.strip().lower()
+    for field in ('UserName', 'AccountName', 'Finder', 'MemberName', 'Username', 'username'):
+        val = entry.get(field)
+        if val and str(val).strip().lower() == target:
+            return True
+    return False
+
+
+def extract_log_dates_from_page(page_html, session=None, code='', active_user=''):
     last_found_dt = None
     last_found_str = ''
+    user_found_dt = None
+    user_found_str = ''
     archive_dt = None
     archive_str = ''
 
@@ -141,7 +163,7 @@ def extract_log_dates_from_page(page_html, session=None, code=''):
         r'"userToken"\s*:\s*"([^"]+)"', page_html
     )
     if not token_match or session is None:
-        return '', '', False
+        return '', '', False, ''
 
     try:
         lb_url = (
@@ -158,7 +180,7 @@ def extract_log_dates_from_page(page_html, session=None, code=''):
             timeout=10,
         )
         if lb_resp.status_code != 200:
-            return '', '', False
+            return '', '', False, ''
 
         lb_json = lb_resp.json()
         entries = lb_json.get('data', []) if isinstance(lb_json, dict) else []
@@ -182,6 +204,10 @@ def extract_log_dates_from_page(page_html, session=None, code=''):
                 if last_found_dt is None or dt > last_found_dt:
                     last_found_dt = dt
                     last_found_str = formatted
+                if log_entry_matches_user(entry, active_user):
+                    if user_found_dt is None or dt > user_found_dt:
+                        user_found_dt = dt
+                        user_found_str = formatted
 
     except Exception as exc:
         print(f'Error fetching logbook for {code}: {exc}')
@@ -192,7 +218,7 @@ def extract_log_dates_from_page(page_html, session=None, code=''):
         and last_found_dt > archive_dt
     )
 
-    return last_found_str, archive_str, found_after_archive
+    return last_found_str, archive_str, found_after_archive, user_found_str
 
 
 def normalize_cache_type(raw_type):
@@ -250,6 +276,7 @@ def extract_full_html_metadata(page_html):
     is_corr = False
     note = ''
     has_found = False
+    found_date = ''
 
     name_m = (
         re.search(r'id=["\']ctl00_ContentBody_CacheName["\'][^>]*>(.*?)</span>', page_html, re.DOTALL | re.I)
@@ -325,6 +352,16 @@ def extract_full_html_metadata(page_html):
     ):
         has_found = True
 
+    found_date_m = (
+        re.search(r'id=["\']ctl00_ContentBody_LoggedItDate["\'][^>]*>(.*?)</(?:span|div|p)>', page_html, re.DOTALL | re.I)
+        or re.search(r'["\']foundDate["\']\s*:\s*["\']([^"\']+)["\']', page_html, re.I)
+    )
+    if found_date_m:
+        raw_fd = html_lib.unescape(re.sub(r'<[^>]+>', '', found_date_m.group(1))).strip()
+        found_date = normalize_date_str(raw_fd)
+        if found_date:
+            has_found = True
+
     return {
         'name': name,
         'ownerName': owner,
@@ -336,6 +373,7 @@ def extract_full_html_metadata(page_html):
         'isCorrected': is_corr,
         'personalNote': note,
         'hasFound': has_found,
+        'foundDate': found_date,
     }
 
 
@@ -395,10 +433,12 @@ def fetch_search_v2_metadata(session, code):
         elif isinstance(gt, int):
             cache_type = WPT_TYPE_MAP.get(gt, cache_type)
 
+        v2_found_date = normalize_date_str(user_data.get('foundDate') or '')
+
         has_found = bool(
             user_data.get('isFound')
             or user_data.get('hasFound')
-            or user_data.get('foundDate')
+            or v2_found_date
         )
         is_owned = bool(
             user_data.get('isOwned')
@@ -417,7 +457,7 @@ def fetch_search_v2_metadata(session, code):
             'personalNote': personal_note,
             'hasFound': has_found,
             'isOwned': is_owned,
-            'foundDate': str(user_data.get('foundDate') or ''),
+            'foundDate': v2_found_date,
             'status': item.get('status'),
         }
     except Exception as exc:
@@ -575,10 +615,15 @@ def enrich_caches():
             page_html = resp.text if resp.status_code == 200 else ''
 
             html_meta = extract_full_html_metadata(page_html) if page_html else {}
-            last_found_date, archive_date, found_after_archive = (
-                extract_log_dates_from_page(page_html, session=session, code=code)
+            last_found_date, archive_date, found_after_archive, user_found_date = (
+                extract_log_dates_from_page(
+                    page_html,
+                    session=session,
+                    code=code,
+                    active_user=active_user,
+                )
                 if page_html
-                else ('', '', False)
+                else ('', '', False, '')
             )
 
             is_truly_archived = False
@@ -631,6 +676,13 @@ def enrich_caches():
             if not meta.get('personalNote') and v2_meta.get('personalNote'):
                 meta['personalNote'] = v2_meta['personalNote']
 
+            own_found_date = normalize_date_str(
+                html_meta.get('foundDate')
+                or user_found_date
+                or v2_meta.get('foundDate')
+                or ''
+            )
+
             owner_name = meta.get('ownerName', '')
             is_owner = bool(
                 (owner_name and owner_name.lower() == active_user)
@@ -642,7 +694,7 @@ def enrich_caches():
             has_found = bool(
                 meta.get('hasFound')
                 or v2_meta.get('hasFound')
-                or last_found_date
+                or own_found_date
             )
 
             return {
@@ -659,7 +711,7 @@ def enrich_caches():
                 'hasFound': has_found,
                 'isOwner': is_owner,
                 'isArchived': is_truly_archived,
-                'foundDate': meta.get('foundDate', v2_meta.get('foundDate', '')),
+                'foundDate': own_found_date,
                 'lastFoundDate': last_found_date,
                 'archiveDate': archive_date,
                 'foundAfterArchive': found_after_archive,
