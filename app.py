@@ -68,7 +68,9 @@ def create_authenticated_session(
 def parse_gc_date(raw_str):
     if not raw_str:
         return None
-    s = str(raw_str).strip()
+    s = re.sub(r'^Logged\s+on:\s*', '', str(raw_str).strip(), flags=re.I).strip()
+    if not s:
+        return None
 
     epoch_match = re.search(r'/Date\((-?\d+)', s)
     if epoch_match:
@@ -96,10 +98,11 @@ def parse_gc_date(raw_str):
 def normalize_date_str(raw_str):
     if not raw_str:
         return ''
-    dt = parse_gc_date(raw_str)
+    cleaned_raw = re.sub(r'^Logged\s+on:\s*', '', str(raw_str).strip(), flags=re.I).strip()
+    dt = parse_gc_date(cleaned_raw)
     if dt:
         return dt.strftime('%Y-%m-%d')
-    return str(raw_str).strip()
+    return cleaned_raw
 
 
 def parse_ddm_to_decimal(ddm_str):
@@ -166,9 +169,10 @@ def extract_log_dates_from_page(page_html, session=None, code='', active_user=''
         return '', '', False, ''
 
     try:
+        user_filter = f'&u={requests.utils.quote(active_user)}' if active_user else ''
         lb_url = (
             f'https://www.geocaching.com/seek/geocache.logbook'
-            f'?tkn={token_match.group(1)}&idx=1&num=50&decrypt=false'
+            f'?tkn={token_match.group(1)}&idx=1&num=100&decrypt=false{user_filter}'
         )
         lb_resp = session.get(
             lb_url,
@@ -204,7 +208,9 @@ def extract_log_dates_from_page(page_html, session=None, code='', active_user=''
                 if last_found_dt is None or dt > last_found_dt:
                     last_found_dt = dt
                     last_found_str = formatted
-                if log_entry_matches_user(entry, active_user):
+                if log_entry_matches_user(entry, active_user) or (
+                    user_filter and len(entries) == 1
+                ):
                     if user_found_dt is None or dt > user_found_dt:
                         user_found_dt = dt
                         user_found_str = formatted
@@ -344,23 +350,61 @@ def extract_full_html_metadata(page_html):
     if note_m:
         note = clean_note_text(note_m.group(1))
 
+    geonav_log_text_m = re.search(
+        r'id=["\']ctl00_ContentBody_GeoNav_logText["\'][^>]*>(.*?)</(?:span|div|p|li)>',
+        page_html,
+        re.DOTALL | re.I,
+    )
+    geonav_log_text = ''
+    if geonav_log_text_m:
+        geonav_log_text = html_lib.unescape(
+            re.sub(r'<[^>]+>', '', geonav_log_text_m.group(1))
+        ).strip()
+
     if (
-        '"isUserFound":true' in page_html
+        geonav_log_text.lower() == 'found it!'
+        or re.search(
+            r'id=["\']ctl00_ContentBody_GeoNav_foundStatus["\'][^>]*class=["\'][^"\']*FoundStatus[^"\']*["\']',
+            page_html,
+            re.I,
+        )
+        or re.search(
+            r'class=["\'][^"\']*FoundStatus[^"\']*["\'][^>]*id=["\']ctl00_ContentBody_GeoNav_foundStatus["\']',
+            page_html,
+            re.I,
+        )
+        or '"isUserFound":true' in page_html
         or '"hasFound":true' in page_html
         or 'id="ctl00_ContentBody_LoggedItImage"' in page_html
+        or 'id="ctl00_ContentBody_uxUserLog"' in page_html
         or 'class="found-status"' in page_html
     ):
         has_found = True
 
-    found_date_m = (
-        re.search(r'id=["\']ctl00_ContentBody_LoggedItDate["\'][^>]*>(.*?)</(?:span|div|p)>', page_html, re.DOTALL | re.I)
-        or re.search(r'["\']foundDate["\']\s*:\s*["\']([^"\']+)["\']', page_html, re.I)
+    geonav_log_date_m = re.search(
+        r'id=["\']ctl00_ContentBody_GeoNav_logDate["\'][^>]*>(.*?)</(?:span|div|p|li)>',
+        page_html,
+        re.DOTALL | re.I,
     )
-    if found_date_m:
-        raw_fd = html_lib.unescape(re.sub(r'<[^>]+>', '', found_date_m.group(1))).strip()
-        found_date = normalize_date_str(raw_fd)
+    if geonav_log_date_m:
+        raw_geonav_date = html_lib.unescape(
+            re.sub(r'<[^>]+>', '', geonav_log_date_m.group(1))
+        ).strip()
+        found_date = normalize_date_str(raw_geonav_date)
         if found_date:
             has_found = True
+
+    if not found_date:
+        found_date_m = (
+            re.search(r'id=["\']ctl00_ContentBody_LoggedItDate["\'][^>]*>(.*?)</(?:span|div|p)>', page_html, re.DOTALL | re.I)
+            or re.search(r'id=["\']ctl00_ContentBody_LoggedItImage["\'][^>]*(?:title|alt)=["\']([^"\']+)["\']', page_html, re.I)
+            or re.search(r'["\']foundDate["\']\s*:\s*["\']([^"\']+)["\']', page_html, re.I)
+        )
+        if found_date_m:
+            raw_fd = html_lib.unescape(re.sub(r'<[^>]+>', '', found_date_m.group(1))).strip()
+            found_date = normalize_date_str(raw_fd)
+            if found_date:
+                has_found = True
 
     return {
         'name': name,
@@ -385,7 +429,7 @@ def fetch_search_v2_metadata(session, code):
         'skip': 0,
         'fields': (
             'code,name,type,geocacheType,difficulty,terrain,'
-            'owner,placedBy,postedCoordinates,userData,status'
+            'owner,placedBy,postedCoordinates,userState,userData,status'
         ),
     }
     try:
@@ -404,9 +448,14 @@ def fetch_search_v2_metadata(session, code):
             return None
 
         item = results[0]
+        user_state = item.get('userState') or {}
         user_data = item.get('userData') or {}
         posted = item.get('postedCoordinates') or {}
-        corrected = user_data.get('correctedCoordinates') or {}
+        corrected = (
+            user_state.get('correctedCoordinates')
+            or user_data.get('correctedCoordinates')
+            or {}
+        )
 
         lat = None
         lng = None
@@ -420,7 +469,12 @@ def fetch_search_v2_metadata(session, code):
             lat = float(posted['latitude'])
             lng = float(posted['longitude'])
 
-        raw_note = user_data.get('note') or user_data.get('personalNote') or ''
+        raw_note = (
+            user_state.get('note')
+            or user_data.get('note')
+            or user_data.get('personalNote')
+            or ''
+        )
         personal_note = clean_note_text(raw_note)
 
         owner_obj = item.get('owner') or {}
@@ -433,15 +487,21 @@ def fetch_search_v2_metadata(session, code):
         elif isinstance(gt, int):
             cache_type = WPT_TYPE_MAP.get(gt, cache_type)
 
-        v2_found_date = normalize_date_str(user_data.get('foundDate') or '')
+        v2_found_date = normalize_date_str(
+            user_state.get('foundDate') or user_data.get('foundDate') or ''
+        )
 
         has_found = bool(
-            user_data.get('isFound')
+            user_state.get('isFound')
+            or user_state.get('hasFound')
+            or user_data.get('isFound')
             or user_data.get('hasFound')
             or v2_found_date
         )
         is_owned = bool(
-            user_data.get('isOwned')
+            user_state.get('isOwned')
+            or user_state.get('isOwner')
+            or user_data.get('isOwned')
             or user_data.get('isOwner')
         )
 
@@ -652,7 +712,6 @@ def enrich_caches():
                 'lng',
                 'isCorrected',
                 'personalNote',
-                'hasFound',
                 'foundDate',
             ):
                 html_val = html_meta.get(key)
@@ -660,6 +719,8 @@ def enrich_caches():
                     meta[key] = html_val
                 else:
                     meta[key] = v2_meta.get(key)
+
+            meta['hasFound'] = bool(html_meta.get('hasFound') or v2_meta.get('hasFound'))
 
             if not meta.get('name') and v2_meta.get('name'):
                 meta['name'] = v2_meta['name']
