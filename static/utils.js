@@ -1,3 +1,8 @@
+const STORAGE_KEYS = {
+    gcCookie: 'gc_extractor_gc_cookie_v1',
+    pgcCookie: 'gc_extractor_pgc_cookie_v1'
+};
+
 const state = {
     caches: [],
     archivedCaches: [],
@@ -16,6 +21,79 @@ const TYPE_ID_MAP = {
     6: 'Event', 8: 'Mystery', 11: 'Webcam', 13: 'Locationless',
     137: 'Earthcache', 453: 'Mega-Event', 1858: 'Wherigo'
 };
+
+function saveCookieToStorage(kind, value) {
+    const key = kind === 'pgc' ? STORAGE_KEYS.pgcCookie : STORAGE_KEYS.gcCookie;
+    try {
+        const trimmed = String(value || '').trim();
+        if (trimmed) {
+            localStorage.setItem(key, trimmed);
+        } else {
+            localStorage.removeItem(key);
+        }
+    } catch (err) {
+        console.warn('Unable to write cookie to localStorage:', err);
+    }
+}
+
+function clearStoredCookies(target = 'all') {
+    try {
+        if (target === 'gc' || target === 'all') {
+            localStorage.removeItem(STORAGE_KEYS.gcCookie);
+            const gcEl = document.getElementById('cookieInput');
+            if (gcEl) gcEl.value = '';
+        }
+        if (target === 'pgc' || target === 'all') {
+            localStorage.removeItem(STORAGE_KEYS.pgcCookie);
+            const pgcEl = document.getElementById('pgcCookieInput');
+            if (pgcEl) pgcEl.value = '';
+        }
+    } catch (err) {
+        console.warn('Unable to clear cookies from localStorage:', err);
+    }
+
+    showToast(
+        target === 'gc'
+            ? 'Cleared expired Geocaching.com cookie'
+            : target === 'pgc'
+              ? 'Cleared expired Project-GC cookie'
+              : 'Cleared saved cookies'
+    );
+}
+
+function initCookiePersistence() {
+    const gcEl = document.getElementById('cookieInput');
+    const pgcEl = document.getElementById('pgcCookieInput');
+
+    try {
+        const savedGc = localStorage.getItem(STORAGE_KEYS.gcCookie);
+        const savedPgc = localStorage.getItem(STORAGE_KEYS.pgcCookie);
+
+        if (gcEl && savedGc) {
+            gcEl.value = savedGc;
+            log('Restored saved Geocaching.com cookie from localStorage.', 'info');
+        }
+        if (pgcEl && savedPgc) {
+            pgcEl.value = savedPgc;
+            logPgc('Restored saved Project-GC cookie from localStorage.', 'info');
+        }
+    } catch (err) {
+        console.warn('Unable to read cookies from localStorage:', err);
+    }
+
+    if (gcEl) {
+        const persistGc = () => saveCookieToStorage('gc', gcEl.value);
+        gcEl.addEventListener('input', persistGc);
+        gcEl.addEventListener('change', persistGc);
+    }
+    if (pgcEl) {
+        const persistPgc = () => saveCookieToStorage('pgc', pgcEl.value);
+        pgcEl.addEventListener('input', persistPgc);
+        pgcEl.addEventListener('change', persistPgc);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', initCookiePersistence);
 
 function escapeHtml(str) {
     return String(str || '')
@@ -148,7 +226,11 @@ function toggleCopyCell(cellEl) {
     if (state.copiedCells.has(cellKey)) {
         state.copiedCells.delete(cellKey);
         cellEl.classList.remove(...highlightClass.split(' '));
-        showToast(`Unmarked ${label}`); } else { state.copiedCells.add(cellKey); cellEl.classList.add(...highlightClass.split(' ')); showToast(`Copied ${label}`);
+        showToast(`Unmarked ${label}`);
+    } else {
+        state.copiedCells.add(cellKey);
+        cellEl.classList.add(...highlightClass.split(' '));
+        showToast(`Copied ${label}`);
     }
 }
 

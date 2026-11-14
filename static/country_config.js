@@ -128,3 +128,5 @@ const COUNTRY_CONFIG = {
         ]
     }
 };
+
+window.COUNTRY_CONFIG = COUNTRY_CONFIG;

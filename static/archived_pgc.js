@@ -9,6 +9,9 @@ async function startProjectGcExtraction() {
     if (!pgcCookie) { alert('Please provide your Project-GC cookie string.'); return; }
     if (!gcCookie) { alert('Please also paste your Geocaching.com cookie string in Tab 1 so each cache can be enriched.'); return; }
 
+    saveCookieToStorage('pgc', pgcCookie);
+    saveCookieToStorage('gc', gcCookie);
+
     state.isExecuting = true;
     setStatus('RUNNING');
     document.getElementById('pgcSubmitBtn').disabled = true;
@@ -22,7 +25,12 @@ async function startProjectGcExtraction() {
             body: JSON.stringify({ url: pgcUrl, cookie: pgcCookie })
         });
         const pgcData = await pgcRes.json();
-        if (!pgcRes.ok) throw new Error(pgcData.error || 'Failed to fetch Project-GC page');
+        if (!pgcRes.ok) {
+            if (pgcRes.status === 401 || pgcRes.status === 403) {
+                clearStoredCookies('pgc');
+            }
+            throw new Error(pgcData.error || 'Failed to fetch Project-GC page');
+        }
 
         let gcCodes = pgcData.gc_codes || [];
         logPgc(`Found #myTabContent: ${pgcData.found_myTabContent ? 'Yes' : 'Fallback'} | Extracted ${gcCodes.length} GC codes.`, 'success');
@@ -45,7 +53,12 @@ async function startProjectGcExtraction() {
             body: JSON.stringify({ gc_codes: gcCodes, cookie: gcCookie, limit: limitVal })
         });
 
-        if (!enrichRes.ok) throw new Error('Failed to enrich caches on Geocaching.com');
+        if (!enrichRes.ok) {
+            if (enrichRes.status === 401) {
+                clearStoredCookies('gc');
+            }
+            throw new Error('Failed to enrich caches on Geocaching.com');
+        }
 
         const enrichedData = await enrichRes.json();
         const allArchived = [];
@@ -78,6 +91,14 @@ async function startProjectGcExtraction() {
 
         switchTab('archivedResultTab');
     } catch (err) {
+        const msg = String(err.message || '').toLowerCase();
+        if (msg.includes('401') || msg.includes('authentication failed') || msg.includes('sign-in')) {
+            clearStoredCookies('gc');
+            logPgc('Geocaching.com cookie appears invalid or expired — cleared from localStorage.', 'warn');
+        } else if (msg.includes('403') || msg.includes('project-gc')) {
+            clearStoredCookies('pgc');
+            logPgc('Project-GC cookie appears invalid or expired — cleared from localStorage.', 'warn');
+        }
         logPgc(`Error: ${err.message}`, 'error');
         setStatus('ERROR');
     } finally {

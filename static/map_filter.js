@@ -1,27 +1,59 @@
 function handleCountryChange() {
-    const country = document.getElementById('countrySelect').value;
+    const countrySelect = document.getElementById('countrySelect');
     const limitInput = document.getElementById('cacheLimitInput');
+    if (!countrySelect) return;
 
-    if (country === 'Taiwan' || country === 'Japan') {
-        limitInput.value = '1000';
-    } else {
-        limitInput.value = 'all';
+    const country = countrySelect.value;
+
+    if (limitInput) {
+        if (country === 'Taiwan' || country === 'Japan') {
+            limitInput.value = '1000';
+        } else {
+            limitInput.value = 'all';
+        }
     }
 
     updateRegionDropdown();
 }
 
 function updateRegionDropdown() {
-    const country = document.getElementById('countrySelect').value;
+    const countrySelect = document.getElementById('countrySelect');
     const regionSelect = document.getElementById('regionSelect');
-    const regions = (typeof COUNTRY_CONFIG !== 'undefined' && COUNTRY_CONFIG[country]?.regions) || [];
+    if (!countrySelect || !regionSelect) return;
+
+    const country = countrySelect.value;
+    const cfg = (typeof window.COUNTRY_CONFIG !== 'undefined' && window.COUNTRY_CONFIG[country])
+        ? window.COUNTRY_CONFIG[country]
+        : (typeof COUNTRY_CONFIG !== 'undefined' ? COUNTRY_CONFIG[country] : null);
+    const regions = (cfg && Array.isArray(cfg.regions)) ? cfg.regions : [];
+
+    if (!regions.length) {
+        regionSelect.innerHTML = '<option value="0">No regions loaded (check country_config.js)</option>';
+        if (typeof log === 'function') {
+            log(`Warning: No regions loaded for "${country}".`, 'warn');
+        }
+        return;
+    }
 
     regionSelect.innerHTML = regions.map((r, idx) =>
         `<option value="${idx}">${escapeHtml(r.name)}</option>`
     ).join('');
+    regionSelect.selectedIndex = 0;
 }
 
-document.addEventListener('DOMContentLoaded', handleCountryChange);
+function initMapFilterUI() {
+    const countrySelect = document.getElementById('countrySelect');
+    if (countrySelect) {
+        countrySelect.onchange = handleCountryChange;
+    }
+    handleCountryChange();
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMapFilterUI);
+} else {
+    initMapFilterUI();
+}
 
 function buildQueryParamSets(countryCfg, regionObj, foundFilter, username) {
     const targetOt = regionObj.ot || 'country';
@@ -126,6 +158,7 @@ async function startExtraction() {
     const shouldEnrich = document.getElementById('enrichToggle').checked;
 
     if (!cookie) { alert('Please input your Geocaching cookie string.'); return; }
+    saveCookieToStorage('gc', cookie);
 
     state.isExecuting = true;
     setStatus('RUNNING');
@@ -154,11 +187,17 @@ async function startExtraction() {
             body: JSON.stringify({ endpoint: '/play/map', cookie })
         });
         const mapData = await mapRes.json();
-        if (!mapRes.ok) throw new Error(mapData.error || 'Failed to load /play/map');
+        if (!mapRes.ok) {
+            if (mapRes.status === 401) clearStoredCookies('gc');
+            throw new Error(mapData.error || 'Failed to load /play/map');
+        }
 
         const html = mapData.html || '';
         const buildIdMatch = html.match(/"buildId"\s*:\s*"([^"]+)"/) || html.match(/\/_next\/static\/([^/]+)\/_buildManifest/);
-        if (!buildIdMatch) throw new Error('Failed to parse buildId. Check cookie validity.');
+        if (!buildIdMatch) {
+            clearStoredCookies('gc');
+            throw new Error('Failed to parse buildId. Check cookie validity.');
+        }
         const buildId = buildIdMatch[1];
 
         const userMatch = html.match(/"username"\s*:\s*"([^"]+)"/) || html.match(/data-username="([^"]+)"/);
@@ -191,6 +230,11 @@ async function startExtraction() {
                 });
 
                 const jsonData = await jsonRes.json();
+                if (!jsonRes.ok) {
+                    if (jsonRes.status === 401) clearStoredCookies('gc');
+                    throw new Error(jsonData.error || 'Failed to query map JSON endpoint');
+                }
+
                 const searchObj = jsonData?.pageProps?.searchResults || {};
                 const batch = searchObj.results || jsonData?.pageProps?.mapData?.geocaches || [];
                 const totalAvailable = searchObj.total || batch.length;
@@ -285,6 +329,11 @@ async function startExtraction() {
                 body: JSON.stringify({ gc_codes: gcCodes, cookie, limit: limitVal })
             });
 
+            if (enrichRes.status === 401) {
+                clearStoredCookies('gc');
+                throw new Error('Authentication Failed: Geocaching.com session expired during enrichment.');
+            }
+
             if (enrichRes.ok) {
                 const enrichedData = await enrichRes.json();
                 const activeUser = (state.username || 'gordon942').toLowerCase();
@@ -330,6 +379,16 @@ async function startExtraction() {
 
         switchTab('cachesTab', document.getElementById('btnCachesTab'));
     } catch (err) {
+        const msg = String(err.message || '');
+        if (
+            msg.includes('401') ||
+            msg.toLowerCase().includes('authentication failed') ||
+            msg.toLowerCase().includes('sign-in') ||
+            msg.toLowerCase().includes('failed to parse buildid')
+        ) {
+            clearStoredCookies('gc');
+            log('Geocaching.com cookie appears invalid or expired — cleared from localStorage. Paste a fresh cookie in Tab 1.', 'warn');
+        }
         log(`Error: ${err.message}`, 'error');
         setStatus('ERROR');
     } finally {

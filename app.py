@@ -226,6 +226,19 @@ def normalize_cache_type(raw_type):
     return str(raw_type).strip()
 
 
+def clean_note_text(raw_html):
+    if not raw_html:
+        return ''
+    with_newlines = re.sub(r'<(?:br|/p|/div|/li)[^>]*>', '\n', str(raw_html), flags=re.I)
+    stripped = re.sub(r'<[^>]+>', '', with_newlines)
+    unescaped = html_lib.unescape(stripped)
+    lines = [re.sub(r'[ \t]+', ' ', line).strip() for line in unescaped.splitlines()]
+    cleaned = '\n'.join(line for line in lines if line).strip()
+    if cleaned in ('Click to enter a note', 'Add a personal geocache note.', 'No personal note'):
+        return ''
+    return cleaned
+
+
 def extract_full_html_metadata(page_html):
     name = ''
     owner = ''
@@ -297,13 +310,11 @@ def extract_full_html_metadata(page_html):
             lat, lng = parse_ddm_to_decimal(ddm_text)
 
     note_m = (
-        re.search(r'<span[^>]*id=["\']cache_note["\'][^>]*>(.*?)</span>', page_html, re.DOTALL | re.I)
-        or re.search(r'<div[^>]*id=["\']srOnlyCacheNote["\'][^>]*>(.*?)</div>', page_html, re.DOTALL | re.I)
+        re.search(r'id=["\']srOnlyCacheNote["\'][^>]*>(.*?)</(?:div|span|p|section)>', page_html, re.DOTALL | re.I)
+        or re.search(r'id=["\']cache_note["\'][^>]*>(.*?)</(?:div|span|p|section)>', page_html, re.DOTALL | re.I)
     )
     if note_m:
-        cleaned = html_lib.unescape(re.sub(r'<[^>]+>', '', note_m.group(1))).strip()
-        if cleaned and cleaned not in ('Click to enter a note', 'Add a personal geocache note.'):
-            note = cleaned
+        note = clean_note_text(note_m.group(1))
 
     return {
         'name': name,
@@ -361,8 +372,8 @@ def fetch_search_v2_metadata(session, code):
             lat = float(posted['latitude'])
             lng = float(posted['longitude'])
 
-        raw_note = user_data.get('note') or ''
-        personal_note = html_lib.unescape(str(raw_note)).strip()
+        raw_note = user_data.get('note') or user_data.get('personalNote') or ''
+        personal_note = clean_note_text(raw_note)
 
         owner_obj = item.get('owner') or {}
         owner_name = owner_obj.get('username') or item.get('placedBy') or ''
@@ -521,6 +532,7 @@ def enrich_caches():
     data = request.json or {}
     raw_limit = data.get('limit', 100)
     gc_codes = data.get('gc_codes', [])
+    archived_only = bool(data.get('archived_only', False))
 
     if raw_limit is not None and int(raw_limit) > 0:
         gc_codes = gc_codes[: int(raw_limit)]
@@ -547,8 +559,6 @@ def enrich_caches():
                 else ('', '', False)
             )
 
-            # STRICT ARCHIVE CHECK: A cache is only archived if it has a confirmed archive date in logs
-            # or explicit archive warning text on the page / API status.
             is_truly_archived = False
             if archive_date:
                 is_truly_archived = True
@@ -561,12 +571,28 @@ def enrich_caches():
             elif v2_meta and v2_meta.get('status') == 3:
                 is_truly_archived = True
 
-            if not is_truly_archived:
-                return None  # Skip active or non-archived caches completely
+            if archived_only and not is_truly_archived:
+                return None
 
             meta = {}
-            for key in ('name', 'ownerName', 'type', 'difficulty', 'terrain', 'lat', 'lng', 'isCorrected', 'personalNote', 'hasFound', 'foundDate'):
-                meta[key] = html_meta.get(key) if html_meta.get(key) is not None and html_meta.get(key) != '' and html_meta.get(key) != '-' else v2_meta.get(key)
+            for key in (
+                'name',
+                'ownerName',
+                'type',
+                'difficulty',
+                'terrain',
+                'lat',
+                'lng',
+                'isCorrected',
+                'personalNote',
+                'hasFound',
+                'foundDate',
+            ):
+                html_val = html_meta.get(key)
+                if html_val is not None and html_val != '' and html_val != '-':
+                    meta[key] = html_val
+                else:
+                    meta[key] = v2_meta.get(key)
 
             if not meta.get('name') and v2_meta.get('name'):
                 meta['name'] = v2_meta['name']
@@ -600,10 +626,10 @@ def enrich_caches():
                 'lng': meta.get('lng'),
                 'isCorrected': bool(meta.get('isCorrected')),
                 'ownerName': owner_name,
-                'personalNote': meta.get('personalNote', ''),
+                'personalNote': meta.get('personalNote') or '',
                 'hasFound': bool(meta.get('hasFound') or v2_meta.get('hasFound')),
                 'isOwner': is_owner,
-                'isArchived': True,
+                'isArchived': is_truly_archived,
                 'foundDate': meta.get('foundDate', v2_meta.get('foundDate', '')),
                 'lastFoundDate': last_found_date,
                 'archiveDate': archive_date,
@@ -620,7 +646,7 @@ def enrich_caches():
         ]
         for future in concurrent.futures.as_completed(futures):
             res = future.result()
-            if res and res.get('isArchived'):
+            if res is not None:
                 enriched_results[res['code']] = res
 
     return jsonify(enriched_results)
